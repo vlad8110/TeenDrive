@@ -8,6 +8,19 @@ struct AccountSettingsView: View {
 
     var body: some View {
         Form {
+            Section("Cloud sync") {
+                LabeledContent("Status") {
+                    Text(accountStore.cloudSyncState.title)
+                        .foregroundStyle(accountStore.cloudSyncState.isError ? .orange : .primary)
+                        .multilineTextAlignment(.trailing)
+                }
+                if let synced = accountStore.lastSuccessfulCloudSyncAt {
+                    LabeledContent("Last success") {
+                        Text(synced.formatted(date: .abbreviated, time: .shortened))
+                    }
+                }
+            }
+
             Section("Account") {
                 LabeledContent("Mode", value: accountStore.role.title)
                 TextField(accountStore.role == .teen ? "Teen name" : "Parent name", text: $accountStore.displayName)

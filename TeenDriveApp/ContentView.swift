@@ -194,23 +194,11 @@ private struct TeenHomeView: View {
     @ObservedObject var sessionStore: SessionStore
     let needsPermission: Bool
 
-    private func tripSafeScore(_ trip: TeenTrip) -> Int {
-        let durationHours = max(trip.duration / 3600, 0.1667) // 10-minute floor avoids inflated short-trip rates.
-        let totalAlerts = Double(trip.safetyAlertCount)
-
-        let topSpeedPenalty = min(15, max(0, (trip.topSpeedMPH - 75) * 0.8))
-        let speedingPenalty = min(30, Double(trip.speedLimitAlertCount) * 5)
-        let drivingEventPenalty = min(28, Double(trip.drivingEventAlertCount) * 7)
-        let harshStopPenalty = min(12, Double(trip.harshStopAlertCount) * 4)
-        let alertRatePenalty = min(15, (totalAlerts / durationHours) * 1.8)
-
-        let penalty = topSpeedPenalty + speedingPenalty + drivingEventPenalty + harshStopPenalty + alertRatePenalty
-        return max(0, min(100, Int((100 - penalty).rounded())))
-    }
+    @State private var isShowingScoreBreakdown = false
 
     /// Safe score for the most recently completed trip (sessions are newest-first).
     private var lastDriveScore: Int? {
-        sessionStore.sessions.first.map { tripSafeScore($0) }
+        sessionStore.sessions.first.map(\.behaviorScoreBreakdown.score)
     }
 
     private var lastTrip: TeenTrip? {
@@ -238,7 +226,7 @@ private struct TeenHomeView: View {
 
     private var averageTripScore: Int? {
         guard !sessionStore.sessions.isEmpty else { return nil }
-        let total = sessionStore.sessions.reduce(0) { $0 + tripSafeScore($1) }
+        let total = sessionStore.sessions.reduce(0) { $0 + $1.behaviorScoreBreakdown.score }
         return Int((Double(total) / Double(sessionStore.sessions.count)).rounded())
     }
 
@@ -259,6 +247,12 @@ private struct TeenHomeView: View {
             VStack(spacing: compact ? 10 : 14) {
                 header
                 scoreRing(diameter: compact ? 160 : 195, lastDriveScore: lastDriveScore, compact: compact)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if lastTrip != nil {
+                            isShowingScoreBreakdown = true
+                        }
+                    }
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: compact ? 8 : 10) {
                     statCard(title: "Last Drive", primary: "\(todaysDriveMinutes)", secondary: "min", compact: compact)
@@ -291,6 +285,20 @@ private struct TeenHomeView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Image(systemName: "bell")
+            }
+        }
+        .sheet(isPresented: $isShowingScoreBreakdown) {
+            NavigationStack {
+                if let trip = lastTrip {
+                    ScoreBreakdownSheet(trip: trip)
+                } else {
+                    ContentUnavailableView("No trip", systemImage: "car", description: Text("Complete a drive first."))
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { isShowingScoreBreakdown = false }
+                            }
+                        }
+                }
             }
         }
     }
@@ -336,10 +344,17 @@ private struct TeenHomeView: View {
                 }
             }
             .frame(width: diameter, height: diameter)
-            Text(lastDriveScore == nil ? "Complete a drive to see your score" : (praise ? "Great job!" : "Keep improving"))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(lastDriveScore == nil ? Color.secondary : (praise ? Color.green : Color.orange))
-                .multilineTextAlignment(.center)
+            VStack(spacing: 4) {
+                Text(lastDriveScore == nil ? "Complete a drive to see your score" : (praise ? "Great job!" : "Keep improving"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(lastDriveScore == nil ? Color.secondary : (praise ? Color.green : Color.orange))
+                    .multilineTextAlignment(.center)
+                if lastDriveScore != nil {
+                    Text("Tap score for details")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, compact ? 4 : 6)
@@ -363,5 +378,81 @@ private struct TeenHomeView: View {
         .frame(maxWidth: .infinity, minHeight: compact ? 68 : 82, alignment: .leading)
         .padding(compact ? 8 : 12)
         .background(.background, in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+private struct ScoreBreakdownSheet: View {
+    let trip: TeenTrip
+    @Environment(\.dismiss) private var dismiss
+
+    private var breakdown: TripBehaviorScoreBreakdown {
+        trip.behaviorScoreBreakdown
+    }
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Text("Trip score")
+                        .font(.headline)
+                    Spacer()
+                    Text("\(breakdown.score)")
+                        .font(.title.bold())
+                        .monospacedDigit()
+                }
+                Text("Starts at 100. Each category subtracts points (capped) based on how you drove on this trip.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("What lowered your score") {
+                breakdownRow(title: "Top speed over 75 mph", points: breakdown.topSpeedPenalty, detail: String(format: "Peak %.0f mph", trip.topSpeedMPH))
+                breakdownRow(title: "Speeding alerts", points: breakdown.speedingPenalty, detail: "\(trip.speedLimitAlertCount) event\(trip.speedLimitAlertCount == 1 ? "" : "s")")
+                breakdownRow(title: "Hard driving events", points: breakdown.drivingEventPenalty, detail: "\(trip.drivingEventAlertCount) event\(trip.drivingEventAlertCount == 1 ? "" : "s")")
+                breakdownRow(title: "Harsh stops", points: breakdown.harshStopPenalty, detail: "\(trip.harshStopAlertCount) stop\(trip.harshStopAlertCount == 1 ? "" : "s")")
+                breakdownRow(
+                    title: "Overall alert rate",
+                    points: breakdown.alertRatePenalty,
+                    detail: String(
+                        format: "%.1f alerts / hr (est.)",
+                        Double(trip.safetyAlertCount) / max(trip.duration / 3600, 0.1667)
+                    )
+                )
+            }
+
+            Section {
+                HStack {
+                    Text("Total deductions")
+                    Spacer()
+                    Text(String(format: "−%.0f", breakdown.totalPenalty))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+        }
+        .navigationTitle("Why this score?")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
+    }
+
+    private func breakdownRow(title: String, points: Double, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(String(format: "−%.0f", points))
+                    .foregroundStyle(points > 0.5 ? .orange : .secondary)
+                    .monospacedDigit()
+            }
+            .font(.subheadline.weight(.semibold))
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
     }
 }

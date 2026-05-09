@@ -39,6 +39,36 @@ struct ConnectedTeen: Codable, Hashable, Identifiable {
     }
 }
 
+enum AccountCloudSyncState: Equatable {
+    case idle
+    case syncing
+    case upToDate
+    case blocked(String)
+    case failed(String)
+
+    var title: String {
+        switch self {
+        case .idle:
+            return "Ready"
+        case .syncing:
+            return "Syncing…"
+        case .upToDate:
+            return "Up to date"
+        case .blocked(let message), .failed(let message):
+            return message
+        }
+    }
+
+    var isError: Bool {
+        switch self {
+        case .blocked, .failed:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 @MainActor
 final class AccountStore: ObservableObject {
     @Published private(set) var hasSelectedRole: Bool {
@@ -82,6 +112,8 @@ final class AccountStore: ObservableObject {
     }
 
     @Published private(set) var firebaseStatus = "Firebase account not connected"
+    @Published private(set) var cloudSyncState: AccountCloudSyncState = .idle
+    @Published private(set) var lastSuccessfulCloudSyncAt: Date?
     private var teenProfileListener: ListenerRegistration?
 
     init() {
@@ -105,6 +137,12 @@ final class AccountStore: ObservableObject {
         familyGroupID = defaults.string(forKey: Keys.familyGroupID) ?? ""
         teenProfileID = defaults.string(forKey: Keys.teenProfileID) ?? ""
         parentProfileID = defaults.string(forKey: Keys.parentProfileID) ?? ""
+
+        let lastSync = defaults.double(forKey: Keys.lastSuccessfulCloudSyncAt)
+        if lastSync > 0 {
+            lastSuccessfulCloudSyncAt = Date(timeIntervalSince1970: lastSync)
+            cloudSyncState = .upToDate
+        }
     }
 
     deinit {
@@ -178,6 +216,7 @@ final class AccountStore: ObservableObject {
         connectedTeens = []
         teenProfileListener?.remove()
         teenProfileListener = nil
+        cloudSyncState = lastSuccessfulCloudSyncAt == nil ? .idle : .upToDate
     }
 
     private static func makePairingCode() -> String {
@@ -186,8 +225,10 @@ final class AccountStore: ObservableObject {
 
     func syncAccount() async {
         guard hasSelectedRole else { return }
+        cloudSyncState = .syncing
         guard let userID = await FirebaseBackend.shared.signInIfNeeded() else {
             firebaseStatus = FirebaseBackend.shared.statusMessage
+            cloudSyncState = .blocked(FirebaseBackend.shared.statusMessage)
             return
         }
 
@@ -199,7 +240,10 @@ final class AccountStore: ObservableObject {
     }
 
     private func syncTeenProfile(userID: String) async {
-        guard let db = FirebaseBackend.shared.database else { return }
+        guard let db = FirebaseBackend.shared.database else {
+            cloudSyncState = .blocked(FirebaseBackend.shared.statusMessage)
+            return
+        }
         let profileID = teenProfileID.isEmpty ? userID : teenProfileID
         let groupID = familyGroupID.isEmpty ? db.collection("familyGroups").document().documentID : familyGroupID
         let name = normalizedDisplayName(fallback: "Teen")
@@ -226,13 +270,18 @@ final class AccountStore: ObservableObject {
             await refreshConnectedParentName(teenProfileID: profileID, db: db)
             startTeenProfileListener(teenProfileID: profileID, db: db)
             firebaseStatus = "Teen profile synced"
+            markCloudSyncSucceeded()
         } catch {
             firebaseStatus = "Could not sync teen profile: \((error as NSError).localizedDescription)"
+            cloudSyncState = .failed(firebaseStatus)
         }
     }
 
     private func syncParentProfile(userID: String) async {
-        guard let db = FirebaseBackend.shared.database else { return }
+        guard let db = FirebaseBackend.shared.database else {
+            cloudSyncState = .blocked(FirebaseBackend.shared.statusMessage)
+            return
+        }
         let profileID = parentProfileID.isEmpty ? userID : parentProfileID
         let name = normalizedDisplayName(fallback: "Parent")
         let familyIDs = Array(Set(connectedTeens.map(\.familyGroupID).filter { !$0.isEmpty }))
@@ -250,8 +299,10 @@ final class AccountStore: ObservableObject {
             try await db.collection("parentProfiles").document(profileID).setData(profile.firestoreData, merge: true)
             parentProfileID = profileID
             firebaseStatus = "Parent profile synced"
+            markCloudSyncSucceeded()
         } catch {
             firebaseStatus = "Could not sync parent profile: \((error as NSError).localizedDescription)"
+            cloudSyncState = .failed(firebaseStatus)
         }
     }
 
@@ -264,6 +315,7 @@ final class AccountStore: ObservableObject {
               !pairing.teenProfileID.isEmpty,
               !pairing.familyGroupID.isEmpty else {
             firebaseStatus = FirebaseBackend.shared.statusMessage
+            cloudSyncState = .blocked(FirebaseBackend.shared.statusMessage)
             return
         }
 
@@ -293,8 +345,10 @@ final class AccountStore: ObservableObject {
             ], merge: true)
 
             firebaseStatus = "Teen connected"
+            markCloudSyncSucceeded()
         } catch {
             firebaseStatus = "Could not connect teen: \((error as NSError).localizedDescription)"
+            cloudSyncState = .failed(firebaseStatus)
         }
     }
 
@@ -310,6 +364,13 @@ final class AccountStore: ObservableObject {
     private func normalizedDisplayName(fallback: String) -> String {
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? fallback : name
+    }
+
+    private func markCloudSyncSucceeded() {
+        let now = Date()
+        lastSuccessfulCloudSyncAt = now
+        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: Keys.lastSuccessfulCloudSyncAt)
+        cloudSyncState = .upToDate
     }
 
     private func refreshConnectedParentName(teenProfileID: String, db: Firestore) async {
@@ -375,4 +436,5 @@ private enum Keys {
     static let familyGroupID = "account.familyGroupID"
     static let teenProfileID = "account.teenProfileID"
     static let parentProfileID = "account.parentProfileID"
+    static let lastSuccessfulCloudSyncAt = "account.lastSuccessfulCloudSyncAt"
 }

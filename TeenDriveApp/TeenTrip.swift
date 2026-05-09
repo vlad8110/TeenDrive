@@ -271,6 +271,47 @@ struct TeenTrip: Codable, Hashable, Identifiable {
             span: MKCoordinateSpan(latitudeDelta: latitudeDelta, longitudeDelta: longitudeDelta)
         )
     }
+
+    /// Behavior-based safe score with a transparent penalty breakdown (used on Home and detail).
+    var behaviorScoreBreakdown: TripBehaviorScoreBreakdown {
+        TripBehaviorScoreBreakdown.compute(for: self)
+    }
+}
+
+/// Penalty components for the behavior score (single source of truth for UI + “Why this score?”).
+struct TripBehaviorScoreBreakdown: Equatable {
+    let score: Int
+    let topSpeedPenalty: Double
+    let speedingPenalty: Double
+    let drivingEventPenalty: Double
+    let harshStopPenalty: Double
+    let alertRatePenalty: Double
+
+    var totalPenalty: Double {
+        topSpeedPenalty + speedingPenalty + drivingEventPenalty + harshStopPenalty + alertRatePenalty
+    }
+
+    static func compute(for trip: TeenTrip) -> TripBehaviorScoreBreakdown {
+        let durationHours = max(trip.duration / 3600, 0.1667)
+        let totalAlerts = Double(trip.safetyAlertCount)
+
+        let topSpeedPenalty = min(15, max(0, (trip.topSpeedMPH - 75) * 0.8))
+        let speedingPenalty = min(30, Double(trip.speedLimitAlertCount) * 5)
+        let drivingEventPenalty = min(28, Double(trip.drivingEventAlertCount) * 7)
+        let harshStopPenalty = min(12, Double(trip.harshStopAlertCount) * 4)
+        let alertRatePenalty = min(15, (totalAlerts / durationHours) * 1.8)
+
+        let penalty = topSpeedPenalty + speedingPenalty + drivingEventPenalty + harshStopPenalty + alertRatePenalty
+        let score = max(0, min(100, Int((100 - penalty).rounded())))
+        return TripBehaviorScoreBreakdown(
+            score: score,
+            topSpeedPenalty: topSpeedPenalty,
+            speedingPenalty: speedingPenalty,
+            drivingEventPenalty: drivingEventPenalty,
+            harshStopPenalty: harshStopPenalty,
+            alertRatePenalty: alertRatePenalty
+        )
+    }
 }
 
 extension TimeInterval {
