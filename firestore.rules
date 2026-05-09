@@ -1,0 +1,61 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsTeen(teenID) {
+      return signedIn() && request.auth.uid == teenID;
+    }
+
+    function ownsParent(parentID) {
+      return signedIn() && request.auth.uid == parentID;
+    }
+
+    match /familyGroups/{familyGroupID} {
+      allow read: if signedIn() && (
+        request.auth.uid in resource.data.parentIDs ||
+        request.auth.uid in resource.data.teenIDs
+      );
+      allow create: if signedIn() && request.auth.uid in request.resource.data.teenIDs;
+      allow update: if signedIn() && (
+        request.auth.uid in resource.data.parentIDs ||
+        request.auth.uid in resource.data.teenIDs ||
+        request.auth.uid in request.resource.data.parentIDs
+      );
+
+      match /teens/{teenID} {
+        allow read: if ownsTeen(teenID) ||
+          request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
+        allow write: if ownsTeen(teenID);
+
+        match /trips/{tripID} {
+          allow read: if ownsTeen(teenID) ||
+            request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
+          allow write: if ownsTeen(teenID);
+        }
+      }
+    }
+
+    match /teenProfiles/{teenID} {
+      allow read: if signedIn();
+      allow create: if ownsTeen(teenID);
+      allow update: if ownsTeen(teenID) ||
+        request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(resource.data.familyGroupID)).data.parentIDs;
+      allow delete: if false;
+    }
+
+    match /parentProfiles/{parentID} {
+      allow read: if signedIn();
+      allow write: if ownsParent(parentID);
+    }
+
+    match /notificationEvents/{eventID} {
+      allow create: if signedIn() && request.resource.data.teenID == request.auth.uid;
+      allow read: if signedIn();
+      allow update, delete: if false;
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import ActivityKit
 import Foundation
 
-struct SpeedActivityAttributes: ActivityAttributes {
+struct TeenDriveActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         var speedMetersPerSecond: Double
         var topSpeedMetersPerSecond: Double

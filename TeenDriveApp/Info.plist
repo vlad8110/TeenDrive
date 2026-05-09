@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Teen Drive</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -21,14 +23,17 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Speedometer uses background location to keep the Live Activity speed display updated while you are tracking.</string>
+	<string>Teen Drive uses background location to auto-start trips, save routes, and keep trip safety status updated.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Speedometer uses your location to calculate current speed while tracking.</string>
+	<string>Teen Drive uses your location to calculate speed, save trip history, and record route maps.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Teen Drive uses the camera so a parent can scan a teen pairing QR code.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>remote-notification</string>
 		<string>nearby-interaction</string>
 		<string>bluetooth-central</string>
 		<string>processing</string>
@@ -36,6 +41,8 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

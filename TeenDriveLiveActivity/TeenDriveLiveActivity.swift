@@ -2,9 +2,9 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-struct SpeedometerLiveActivity: Widget {
+struct TeenDriveLiveActivity: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: SpeedActivityAttributes.self) { context in
+        ActivityConfiguration(for: TeenDriveActivityAttributes.self) { context in
             LockScreenSpeedView(state: context.state)
                 .activityBackgroundTint(.black)
                 .activitySystemActionForegroundColor(.white)
@@ -12,7 +12,7 @@ struct SpeedometerLiveActivity: Widget {
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     VStack(alignment: .leading) {
-                        Text("Speed")
+                        Text("Teen Drive")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Text(context.state.speedText)
@@ -49,14 +49,14 @@ struct SpeedometerLiveActivity: Widget {
             } minimal: {
                 Image(systemName: "speedometer")
             }
-            .widgetURL(URL(string: "speedometer://activity"))
+            .widgetURL(URL(string: "teendrive://activity"))
             .keylineTint(.green)
         }
     }
 }
 
 private struct LockScreenSpeedView: View {
-    let state: SpeedActivityAttributes.ContentState
+    let state: TeenDriveActivityAttributes.ContentState
 
     var body: some View {
         HStack(spacing: 14) {
@@ -65,7 +65,7 @@ private struct LockScreenSpeedView: View {
                 .foregroundStyle(.green)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Current Speed")
+                Text("Teen Drive")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(state.speedText)
@@ -91,7 +91,7 @@ private struct LockScreenSpeedView: View {
     }
 }
 
-private extension SpeedActivityAttributes.ContentState {
+private extension TeenDriveActivityAttributes.ContentState {
     var speedMPH: Double {
         max(speedMetersPerSecond, 0) * 2.2369362921
     }
