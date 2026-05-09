@@ -19,53 +19,100 @@ struct ContentView: View {
 
     var body: some View {
         if accountStore.hasSelectedRole {
-            NavigationStack {
-                if accountStore.role == .teen {
-                    teenDashboard
-                } else {
-                    ParentDashboardView(store: sessionStore, tracker: tracker, accountStore: accountStore)
-                        .toolbar {
-                            ToolbarItemGroup(placement: .topBarTrailing) {
-                                NavigationLink {
-                                    AccountSettingsView(accountStore: accountStore)
-                                } label: {
-                                    Label("Account", systemImage: "person.crop.circle")
-                                }
-
-                                NavigationLink {
-                                    SafetyAlertSettingsView(settings: safetySettings, tracker: tracker)
-                                } label: {
-                                    Label("Alerts", systemImage: "bell.badge")
-                                }
-                            }
-                        }
-                }
-            }
-            .task {
-                sessionStore.configure(accountStore: accountStore)
-            }
-            .onChange(of: accountStore.connectedTeens) {
-                sessionStore.bindRemoteTrips()
+            if accountStore.role == .teen {
+                teenTabs
+                    .task {
+                        sessionStore.configure(accountStore: accountStore)
+                    }
+                    .onChange(of: accountStore.connectedTeens) {
+                        sessionStore.bindRemoteTrips()
+                    }
+            } else {
+                parentTabs
+                    .task {
+                        sessionStore.configure(accountStore: accountStore)
+                    }
+                    .onChange(of: accountStore.connectedTeens) {
+                        sessionStore.bindRemoteTrips()
+                    }
             }
         } else {
             RoleSelectionView(accountStore: accountStore)
         }
     }
 
-    private var teenDashboard: some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 8) {
-                Text(String(format: "%.0f", tracker.speedMPH))
-                    .font(.system(size: 96, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .minimumScaleFactor(0.5)
+    private var teenTabs: some View {
+        TabView {
+            NavigationStack {
+                TeenHomeView(
+                    tracker: tracker,
+                    accountStore: accountStore,
+                    sessionStore: sessionStore,
+                    needsPermission: needsPermission
+                )
+            }
+            .tabItem {
+                Label("Home", systemImage: "house.fill")
+            }
 
+            NavigationStack {
+                teenDriveView
+            }
+            .tabItem {
+                Label("Drive", systemImage: "car.fill")
+            }
+
+            NavigationStack {
+                SessionHistoryView(store: sessionStore)
+            }
+            .tabItem {
+                Label("Reports", systemImage: "doc.text")
+            }
+
+            NavigationStack {
+                AccountSettingsView(accountStore: accountStore)
+            }
+            .tabItem {
+                Label("Profile", systemImage: "person")
+            }
+        }
+    }
+
+    private var parentTabs: some View {
+        TabView {
+            NavigationStack {
+                ParentDashboardView(store: sessionStore, tracker: tracker, accountStore: accountStore)
+            }
+            .tabItem {
+                Label("Home", systemImage: "house.fill")
+            }
+
+            NavigationStack {
+                SessionHistoryView(store: sessionStore)
+            }
+            .tabItem {
+                Label("Trips", systemImage: "clock.arrow.circlepath")
+            }
+
+            NavigationStack {
+                AccountSettingsView(accountStore: accountStore)
+            }
+            .tabItem {
+                Label("Account", systemImage: "person.crop.circle")
+            }
+        }
+    }
+
+    private var teenDriveView: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 6) {
+                Text(String(format: "%.0f", tracker.speedMPH))
+                    .font(.system(size: 84, weight: .bold, design: .rounded))
+                    .monospacedDigit()
                 Text("mph")
-                    .font(.title2.weight(.semibold))
+                    .font(.headline)
                     .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 32)
 
             HStack(spacing: 12) {
                 MetricTile(title: "Top", value: String(format: "%.0f mph", tracker.topSpeedMPH))
@@ -75,17 +122,8 @@ struct ContentView: View {
 
             Text(tracker.statusMessage)
                 .font(.callout)
-                .foregroundStyle(tracker.currentTripAlertCount > 0 && tracker.isTracking ? .orange : .secondary)
+                .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-            if tracker.isAutoStartArmed {
-                Label("Teen driving auto-start at 5 mph", systemImage: "car.fill")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.green)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            accountStatus
 
             Spacer()
 
@@ -97,79 +135,36 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.large)
             }
 
             Button {
                 tracker.isTracking ? tracker.stop() : tracker.start()
             } label: {
-                Label(tracker.isTracking ? "End Drive" : "Start Drive", systemImage: tracker.isTracking ? "stop.fill" : "play.fill")
+                Label(tracker.isTracking ? "End Drive" : "Start Drive", systemImage: tracker.isTracking ? "stop.fill" : "car.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .tint(tracker.isTracking ? .red : .blue)
             .controlSize(.large)
-            .tint(tracker.isTracking ? .red : .green)
         }
         .padding(20)
-        .navigationTitle("Teen Drive")
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Drive")
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                NavigationLink {
-                    AccountSettingsView(accountStore: accountStore)
-                } label: {
-                    Label("Account", systemImage: "person.crop.circle")
-                }
-
+            ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
                     SafetyAlertSettingsView(settings: safetySettings, tracker: tracker)
                 } label: {
-                    Label("Alerts", systemImage: "bell.badge")
-                }
-
-                NavigationLink {
-                    SessionHistoryView(store: sessionStore)
-                } label: {
-                    Label("Trips", systemImage: "clock.arrow.circlepath")
+                    Image(systemName: "bell")
                 }
             }
         }
-        .background(Color(.systemGroupedBackground))
     }
 
     private var needsPermission: Bool {
         tracker.authorizationStatus == .notDetermined || tracker.authorizationStatus == .denied || tracker.authorizationStatus == .restricted
     }
 
-    @ViewBuilder
-    private var accountStatus: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(accountStore.role == .teen ? "Teen Account" : "Parent Account", systemImage: accountStore.role == .teen ? "person.fill" : "person.2.fill")
-                .font(.callout.weight(.semibold))
-
-            if accountStore.role == .teen {
-                if accountStore.connectedParentName.isEmpty {
-                    Text(accountStore.firebaseStatus)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Connected parent: \(accountStore.connectedParentName)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else if !accountStore.connectedTeens.isEmpty {
-                Text("Connected teens: \(accountStore.connectedTeens.count) • \(accountStore.firebaseStatus)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("No teen connected. Open Account to scan QR.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
-    }
 }
 
 private struct MetricTile: View {
@@ -190,5 +185,139 @@ private struct MetricTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct TeenHomeView: View {
+    @ObservedObject var tracker: TeenDriveTracker
+    @ObservedObject var accountStore: AccountStore
+    @ObservedObject var sessionStore: SessionStore
+    let needsPermission: Bool
+
+    private var safeScore: Int {
+        let speedPenalty = max(0, Int(tracker.topSpeedMPH - 75))
+        let alertPenalty = tracker.currentTripAlertCount * 5
+        return max(0, min(100, 100 - speedPenalty - alertPenalty))
+    }
+
+    private var greetingName: String {
+        let trimmed = accountStore.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Driver" : trimmed
+    }
+
+    private var todaysDriveMinutes: Int {
+        guard let latest = sessionStore.sessions.first else { return 0 }
+        return max(0, Int(latest.duration / 60))
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                header
+                scoreRing
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    statCard(title: "Last Drive", primary: "\(todaysDriveMinutes)", secondary: "min")
+                    statCard(title: "Top Issue", primary: tracker.currentTripAlertCount == 0 ? "None" : "Safety Alerts", secondary: tracker.currentTripAlertCount == 0 ? "Great driving" : "\(tracker.currentTripAlertCount) this drive")
+                    statCard(title: "Streak", primary: safeScore >= 80 ? "5" : "1", secondary: "safe drives")
+                    statCard(title: "Parent Status", primary: accountStore.connectedParentName.isEmpty ? "Not Connected" : "Connected", secondary: accountStore.connectedParentName.isEmpty ? "Open Profile to pair" : accountStore.connectedParentName)
+                }
+
+                if needsPermission {
+                    Button {
+                        tracker.requestPermission()
+                    } label: {
+                        Label("Allow Location", systemImage: "location.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+
+                Button {
+                    tracker.isTracking ? tracker.stop() : tracker.start()
+                } label: {
+                    Label(tracker.isTracking ? "End Drive" : "Start Drive", systemImage: tracker.isTracking ? "stop.fill" : "car.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(tracker.isTracking ? .red : .blue)
+                .controlSize(.large)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("TeenDrive")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Image(systemName: "bell")
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Good afternoon,")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("\(greetingName)! 👋")
+                    .font(.title2.bold())
+            }
+            Spacer()
+            Circle()
+                .fill(Color.blue.opacity(0.15))
+                .frame(width: 54, height: 54)
+                .overlay(
+                    Image(systemName: "person.fill")
+                        .foregroundStyle(.blue)
+                )
+        }
+    }
+
+    private var scoreRing: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .stroke(Color.gray.opacity(0.2), lineWidth: 14)
+                Circle()
+                    .trim(from: 0, to: CGFloat(safeScore) / 100)
+                    .stroke(Color.green, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                VStack(spacing: 2) {
+                    Text("\(safeScore)")
+                        .font(.system(size: 54, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                    Text("Safe Score")
+                        .font(.headline)
+                }
+            }
+            .frame(width: 220, height: 220)
+            Text(safeScore >= 80 ? "Great job!" : "Keep improving")
+                .font(.headline)
+                .foregroundStyle(safeScore >= 80 ? .green : .orange)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(.background, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func statCard(title: String, primary: String, secondary: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(primary)
+                .font(.title2.bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text(secondary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, minHeight: 94, alignment: .leading)
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 14))
     }
 }
