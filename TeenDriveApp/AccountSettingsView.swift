@@ -34,6 +34,9 @@ struct AccountSettingsView: View {
         .onAppear {
             parentName = accountStore.displayName
         }
+        .task {
+            await accountStore.syncAccount()
+        }
         .sheet(isPresented: $isShowingScanner) {
             NavigationStack {
                 QRCodeScannerView { payload in
@@ -58,9 +61,14 @@ struct AccountSettingsView: View {
     private var teenPairingSection: some View {
         Section("Teen Pairing QR") {
             VStack(alignment: .center, spacing: 12) {
-                PairingQRCodeView(payload: accountStore.pairingPayload)
+                if accountStore.isPairingReady {
+                    PairingQRCodeView(payload: accountStore.pairingPayload)
+                } else {
+                    ProgressView()
+                        .frame(width: 220, height: 220)
+                }
 
-                Text("Have a parent scan this QR code to connect.")
+                Text(accountStore.isPairingReady ? "Have a parent scan this QR code to connect." : "Preparing cloud pairing QR.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
