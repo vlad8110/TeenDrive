@@ -1,4 +1,5 @@
 import CoreLocation
+import MapKit
 import SwiftUI
 
 struct ContentView: View {
@@ -6,6 +7,7 @@ struct ContentView: View {
     @StateObject private var sessionStore: SessionStore
     @StateObject private var safetySettings: SafetyAlertSettings
     @StateObject private var tracker: TeenDriveTracker
+    @State private var selectedTeenTab: TeenTab = .drive
 
     init() {
         let accountStore = AccountStore()
@@ -42,40 +44,41 @@ struct ContentView: View {
     }
 
     private var teenTabs: some View {
-        TabView {
-            NavigationStack {
+        ZStack(alignment: .bottom) {
+            Group {
+                switch selectedTeenTab {
+                case .home:
+                    NavigationStack {
                 TeenHomeView(
                     tracker: tracker,
                     accountStore: accountStore,
                     sessionStore: sessionStore,
                     needsPermission: needsPermission
                 )
+                    }
+                case .drive:
+                    NavigationStack {
+                        teenDriveView
+                    }
+                case .reports:
+                    NavigationStack {
+                        SessionHistoryView(store: sessionStore)
+                    }
+                case .profile:
+                    NavigationStack {
+                        AccountSettingsView(accountStore: accountStore)
+                    }
+                }
             }
-            .tabItem {
-                Label("Home", systemImage: "house.fill")
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, 98)
 
-            NavigationStack {
-                teenDriveView
-            }
-            .tabItem {
-                Label("Drive", systemImage: "car.fill")
-            }
-
-            NavigationStack {
-                SessionHistoryView(store: sessionStore)
-            }
-            .tabItem {
-                Label("Reports", systemImage: "doc.text")
-            }
-
-            NavigationStack {
-                AccountSettingsView(accountStore: accountStore)
-            }
-            .tabItem {
-                Label("Profile", systemImage: "person")
-            }
+            TeenTabBar(selectedTab: $selectedTeenTab)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
         }
+        .background(selectedTeenTab == .drive ? Color.black : Color(.systemGroupedBackground))
+        .ignoresSafeArea(selectedTeenTab == .drive ? .container : [], edges: .bottom)
     }
 
     private var parentTabs: some View {
@@ -104,61 +107,24 @@ struct ContentView: View {
     }
 
     private var teenDriveView: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 6) {
-                Text(String(format: "%.0f", tracker.speedMPH))
-                    .font(.system(size: 84, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                Text("mph")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 12) {
-                MetricTile(title: "Top", value: String(format: "%.0f mph", tracker.topSpeedMPH))
-                MetricTile(title: "Distance", value: String(format: "%.2f mi", tracker.distanceMiles))
-                MetricTile(title: "Alerts", value: "\(tracker.currentTripAlertCount)")
-            }
-
-            Text(tracker.statusMessage)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Spacer()
-
-            if needsPermission {
-                Button {
-                    tracker.requestPermission()
-                } label: {
-                    Label("Allow Location", systemImage: "location.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-
-            Button {
+        TeenDriveDashboardView(
+            tracker: tracker,
+            sessionStore: sessionStore,
+            needsPermission: needsPermission,
+            onRequestPermission: {
+                tracker.requestPermission()
+            },
+            onCenterMap: {
+                tracker.centerMapOnCurrentLocation()
+            },
+            onToggleDrive: {
                 tracker.isTracking ? tracker.stop() : tracker.start()
-            } label: {
-                Label(tracker.isTracking ? "End Drive" : "Start Drive", systemImage: tracker.isTracking ? "stop.fill" : "car.fill")
-                    .frame(maxWidth: .infinity)
+            },
+            safetySettings: {
+                SafetyAlertSettingsView(settings: safetySettings, tracker: tracker)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(tracker.isTracking ? .red : .blue)
-            .controlSize(.large)
-        }
-        .padding(20)
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("Drive")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    SafetyAlertSettingsView(settings: safetySettings, tracker: tracker)
-                } label: {
-                    Image(systemName: "bell")
-                }
-            }
-        }
+        )
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     private var needsPermission: Bool {
@@ -167,24 +133,476 @@ struct ContentView: View {
 
 }
 
-private struct MetricTile: View {
-    let title: String
-    let value: String
+private enum TeenTab: String, CaseIterable, Identifiable {
+    case home
+    case drive
+    case reports
+    case profile
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .home:
+            return "Home"
+        case .drive:
+            return "Drive"
+        case .reports:
+            return "Reports"
+        case .profile:
+            return "Profile"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .home:
+            return "house.fill"
+        case .drive:
+            return "car.fill"
+        case .reports:
+            return "doc.text.fill"
+        case .profile:
+            return "person.fill"
+        }
+    }
+}
+
+private struct TeenTabBar: View {
+    @Binding var selectedTab: TeenTab
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.title3.weight(.bold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+        HStack(spacing: 0) {
+            ForEach(TeenTab.allCases) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: tab.systemImage)
+                            .font(.system(size: 24, weight: .semibold))
+                        Text(tab.title)
+                            .font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(selectedTab == tab ? Color.blue : Color.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 74)
+                    .background {
+                        if selectedTab == tab {
+                            Capsule()
+                                .fill(Color.white.opacity(0.14))
+                                .padding(.vertical, 6)
+                                .padding(.horizontal, 4)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.38), radius: 18, y: 8)
+    }
+}
+
+private struct TeenDriveDashboardView<Settings: View>: View {
+    @ObservedObject var tracker: TeenDriveTracker
+    @ObservedObject var sessionStore: SessionStore
+    let needsPermission: Bool
+    let onRequestPermission: () -> Void
+    let onCenterMap: () -> Void
+    let onToggleDrive: () -> Void
+    @ViewBuilder let safetySettings: () -> Settings
+    @State private var mapStyle: TeenDriveMapStyle = .standard
+
+    private var latestScore: Int {
+        sessionStore.sessions.first?.behaviorScoreBreakdown.score ?? 92
+    }
+
+    private var scoreLabel: String {
+        latestScore >= 85 ? "Great" : latestScore >= 70 ? "Good" : "Review"
+    }
+
+    private func durationText(now: Date = Date()) -> String {
+        guard let startedAt = tracker.activeTripStartedAt else { return "00:00:00" }
+        let seconds = max(0, Int(now.timeIntervalSince(startedAt)))
+        return String(format: "%02d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60)
+    }
+
+    var body: some View {
+        Group {
+            if tracker.isTracking {
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    driveContent(duration: durationText(now: timeline.date))
+                }
+            } else {
+                driveContent(duration: durationText())
+            }
+        }
+        .background(Color.black)
+    }
+
+    private func driveContent(duration: String) -> some View {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    mapCard
+                    metricsCard(duration: duration)
+                    actionButton
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 74)
+                .padding(.bottom, 18)
+            }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Drive")
+                    .font(.system(size: 44, weight: .bold))
+                    .foregroundStyle(.white)
+
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(tracker.isTracking ? Color.green : Color.gray)
+                        .frame(width: 9, height: 9)
+                    Text(tracker.isTracking ? "Live drive in progress" : "Ready to drive")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(tracker.isTracking ? Color.green : Color.white.opacity(0.62))
+                }
+            }
+
+            Spacer()
+
+            NavigationLink {
+                safetySettings()
+            } label: {
+                Image(systemName: "bell")
+                    .font(.title2.weight(.medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 64, height: 64)
+                    .background(Color.white.opacity(0.1), in: Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 1))
+            }
+        }
+    }
+
+    private var mapCard: some View {
+        ZStack(alignment: .leading) {
+            TeenLiveDriveMap(route: tracker.currentRoute, lastKnownLocation: tracker.lastKnownLocation)
+                .environment(\.teenDriveMapStyle, mapStyle)
+                .frame(height: 310)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(Color.blue.opacity(0.12))
+
+            VStack(spacing: 8) {
+                SpeedLimitBadge()
+                Text(String(format: "%.0f", tracker.speedMPH))
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.green)
+                Text("mph")
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.68))
+            }
+            .frame(width: 86, height: 144)
+            .background(.black.opacity(0.68), in: RoundedRectangle(cornerRadius: 8))
+            .padding(.leading, 18)
+
+            VStack(spacing: 18) {
+                Spacer()
+                Button(action: onCenterMap) {
+                    Image(systemName: "location.circle.fill")
+                }
+                .buttonStyle(.plain)
+                Button {
+                    mapStyle.toggle()
+                } label: {
+                    Image(systemName: "square.3.layers.3d.down.right")
+                }
+                .buttonStyle(.plain)
+            }
+            .font(.title2.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.trailing, 18)
+            .padding(.bottom, 28)
+        }
+    }
+
+    private func metricsCard(duration: String) -> some View {
+        HStack(spacing: 0) {
+            DriveMetric(
+                icon: "checkmark.shield.fill",
+                iconColor: .green,
+                title: "Safety Score",
+                value: "\(latestScore)",
+                detail: scoreLabel
+            )
+
+            Divider().background(Color.white.opacity(0.16))
+
+            DriveMetric(
+                icon: "road.lanes",
+                iconColor: .white.opacity(0.22),
+                title: "Distance",
+                value: String(format: "%.2f mi", tracker.distanceMiles),
+                detail: nil
+            )
+
+            Divider().background(Color.white.opacity(0.16))
+
+            DriveMetric(
+                icon: "clock",
+                iconColor: .white.opacity(0.22),
+                title: "Duration",
+                value: duration,
+                detail: nil
+            )
+        }
+        .frame(height: 112)
+        .padding(.horizontal, 14)
+        .background(darkCardBackground, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var actionButton: some View {
+        VStack(spacing: 10) {
+            if needsPermission {
+                Button(action: onRequestPermission) {
+                    Label("Allow Location", systemImage: "location.fill")
+                        .font(.title3.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 62)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .background(Color.green, in: Capsule())
+            }
+
+            Button(action: onToggleDrive) {
+                Label(tracker.isTracking ? "End Drive" : "Start Drive", systemImage: "car.fill")
+                    .font(.title3.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 64)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .background(tracker.isTracking ? Color.blue : Color.green, in: Capsule())
+        }
+    }
+
+    private var darkCardBackground: LinearGradient {
+        LinearGradient(
+            colors: [Color.white.opacity(0.12), Color.white.opacity(0.07)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+}
+
+private enum TeenDriveMapStyle {
+    case standard
+    case satellite
+
+    mutating func toggle() {
+        self = self == .standard ? .satellite : .standard
+    }
+
+    var mapStyle: MapStyle {
+        switch self {
+        case .standard:
+            return .standard(elevation: .flat)
+        case .satellite:
+            return .hybrid(elevation: .flat)
+        }
+    }
+}
+
+private struct TeenDriveMapStyleKey: EnvironmentKey {
+    static let defaultValue: TeenDriveMapStyle = .standard
+}
+
+private extension EnvironmentValues {
+    var teenDriveMapStyle: TeenDriveMapStyle {
+        get { self[TeenDriveMapStyleKey.self] }
+        set { self[TeenDriveMapStyleKey.self] = newValue }
+    }
+}
+
+private struct TeenLiveDriveMap: View {
+    let route: [RoutePoint]
+    let lastKnownLocation: RoutePoint?
+    @Environment(\.teenDriveMapStyle) private var mapStyle
+    @State private var cameraPosition: MapCameraPosition = .region(Self.defaultRegion)
+
+    private static var fallbackCoordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.0090)
+    }
+
+    private static var defaultRegion: MKCoordinateRegion {
+        MKCoordinateRegion(center: fallbackCoordinate, span: MKCoordinateSpan(latitudeDelta: 0.035, longitudeDelta: 0.035))
+    }
+
+    private var mapRegion: MKCoordinateRegion {
+        guard let first = route.first?.coordinate ?? lastKnownLocation?.coordinate else {
+            return Self.defaultRegion
+        }
+
+        let coordinates = route.map(\.coordinate)
+        guard coordinates.count > 1 else {
+            return MKCoordinateRegion(center: first, span: MKCoordinateSpan(latitudeDelta: 0.025, longitudeDelta: 0.025))
+        }
+
+        let bounds = coordinates.reduce(
+            (minLat: first.latitude, maxLat: first.latitude, minLon: first.longitude, maxLon: first.longitude)
+        ) { bounds, coordinate in
+            (
+                min(bounds.minLat, coordinate.latitude),
+                max(bounds.maxLat, coordinate.latitude),
+                min(bounds.minLon, coordinate.longitude),
+                max(bounds.maxLon, coordinate.longitude)
+            )
+        }
+
+        let center = CLLocationCoordinate2D(
+            latitude: (bounds.minLat + bounds.maxLat) / 2,
+            longitude: (bounds.minLon + bounds.maxLon) / 2
+        )
+        return MKCoordinateRegion(
+            center: center,
+            span: MKCoordinateSpan(
+                latitudeDelta: max((bounds.maxLat - bounds.minLat) * 1.7, 0.018),
+                longitudeDelta: max((bounds.maxLon - bounds.minLon) * 1.7, 0.018)
+            )
+        )
+    }
+
+    var body: some View {
+        Map(position: $cameraPosition) {
+            UserAnnotation()
+
+            if route.count > 1 {
+                MapPolyline(coordinates: route.map(\.coordinate))
+                    .stroke(.blue.opacity(0.35), lineWidth: 10)
+                MapPolyline(coordinates: route.map(\.coordinate))
+                    .stroke(.blue, lineWidth: 5)
+            }
+
+            if let first = route.first {
+                Marker("Start", systemImage: "play.fill", coordinate: first.coordinate)
+                    .tint(.green)
+            }
+
+            if let lastKnownLocation {
+                Annotation("Current", coordinate: lastKnownLocation.coordinate) {
+                    CurrentLocationDot()
+                }
+            }
+        }
+        .mapStyle(mapStyle.mapStyle)
+        .mapControls {
+            MapCompass()
+            MapPitchToggle()
+            MapScaleView()
+            MapUserLocationButton()
+        }
+        .onAppear {
+            updateCamera(animated: false)
+        }
+        .onChange(of: route) {
+            updateCamera(animated: true)
+        }
+        .onChange(of: lastKnownLocation) {
+            updateCamera(animated: true)
+        }
+    }
+
+    private func updateCamera(animated: Bool) {
+        let position = MapCameraPosition.region(mapRegion)
+        if animated {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                cameraPosition = position
+            }
+        } else {
+            cameraPosition = position
+        }
+    }
+}
+
+private struct CurrentLocationDot: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.blue.opacity(0.22))
+                .frame(width: 54, height: 54)
+            Circle()
+                .stroke(.white.opacity(0.9), lineWidth: 3)
+                .frame(width: 31, height: 31)
+            Circle()
+                .fill(Color.blue)
+                .frame(width: 21, height: 21)
+        }
+        .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+    }
+}
+
+private struct SpeedLimitBadge: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("SPEED")
+            Text("LIMIT")
+            Text("35")
+                .font(.system(size: 22, weight: .black))
+        }
+        .font(.system(size: 8, weight: .black))
+        .foregroundStyle(.black)
+        .frame(width: 42, height: 54)
+        .background(.white, in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+private struct DriveMetric: View {
+    let icon: String
+    let iconColor: Color
+    let title: String
+    let value: String
+    let detail: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(iconColor)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+
+                Text(value)
+                    .font(.title3.bold())
+                    .monospacedDigit()
+                    .foregroundStyle(title == "Safety Score" ? Color.green : Color.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+
+                if let detail {
+                    Text(detail)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.green)
+                        .lineLimit(1)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 8)
     }
 }
 

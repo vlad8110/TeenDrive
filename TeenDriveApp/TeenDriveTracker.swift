@@ -17,6 +17,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     @Published private(set) var currentTripAlertCount = 0
     @Published private(set) var activeTripStartedAt: Date?
     @Published private(set) var lastKnownLocation: RoutePoint?
+    @Published private(set) var currentRoute: [RoutePoint] = []
     @Published private(set) var authorizationStatus: CLAuthorizationStatus
     @Published private(set) var isTracking = false
     @Published private(set) var isAutoStartArmed = false
@@ -71,6 +72,21 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         locationManager.requestWhenInUseAuthorization()
     }
 
+    func centerMapOnCurrentLocation() {
+        if authorizationStatus == .notDetermined {
+            requestPermission()
+            return
+        }
+
+        guard authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse else {
+            statusMessage = "Location access is needed"
+            return
+        }
+
+        locationManager.requestLocation()
+        locationManager.startUpdatingLocation()
+    }
+
     func start() {
         start(automatic: false, initialLocation: nil)
     }
@@ -90,6 +106,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         distanceMeters = 0
         currentTripAlertCount = 0
         lastKnownLocation = nil
+        currentRoute = []
         previousLocation = nil
         previousSpeedSample = nil
         route = []
@@ -134,6 +151,8 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     private func handle(location: CLLocation) {
         let measuredSpeed = max(location.speed, 0)
         speedMetersPerSecond = measuredSpeed
+
+        updateLiveLocation(for: location)
 
         guard isTracking else {
             if measuredSpeed >= autoStartThresholdMetersPerSecond {
@@ -286,7 +305,9 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         isAutoStartArmed = true
         statusMessage = message ?? "Auto-start armed at 5 mph"
         locationManager.allowsBackgroundLocationUpdates = authorizationStatus == .authorizedAlways
-        locationManager.startUpdatingLocation()
+        if authorizationStatus == .authorizedAlways {
+            locationManager.startUpdatingLocation()
+        }
     }
 
     private func appendRoutePoint(for location: CLLocation) {
@@ -300,6 +321,20 @@ final class TeenDriveTracker: NSObject, ObservableObject {
             timestamp: location.timestamp
         )
         route.append(point)
+        currentRoute = route
+        lastKnownLocation = point
+    }
+
+    private func updateLiveLocation(for location: CLLocation) {
+        guard CLLocationCoordinate2DIsValid(location.coordinate), location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 100 else {
+            return
+        }
+
+        let point = RoutePoint(
+            latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude,
+            timestamp: location.timestamp
+        )
         lastKnownLocation = point
     }
 
