@@ -194,10 +194,52 @@ private struct TeenHomeView: View {
     @ObservedObject var sessionStore: SessionStore
     let needsPermission: Bool
 
-    private var safeScore: Int {
-        let speedPenalty = max(0, Int(tracker.topSpeedMPH - 75))
-        let alertPenalty = tracker.currentTripAlertCount * 5
-        return max(0, min(100, 100 - speedPenalty - alertPenalty))
+    private func tripSafeScore(_ trip: TeenTrip) -> Int {
+        let durationHours = max(trip.duration / 3600, 0.1667) // 10-minute floor avoids inflated short-trip rates.
+        let totalAlerts = Double(trip.safetyAlertCount)
+
+        let topSpeedPenalty = min(15, max(0, (trip.topSpeedMPH - 75) * 0.8))
+        let speedingPenalty = min(30, Double(trip.speedLimitAlertCount) * 5)
+        let drivingEventPenalty = min(28, Double(trip.drivingEventAlertCount) * 7)
+        let harshStopPenalty = min(12, Double(trip.harshStopAlertCount) * 4)
+        let alertRatePenalty = min(15, (totalAlerts / durationHours) * 1.8)
+
+        let penalty = topSpeedPenalty + speedingPenalty + drivingEventPenalty + harshStopPenalty + alertRatePenalty
+        return max(0, min(100, Int((100 - penalty).rounded())))
+    }
+
+    /// Safe score for the most recently completed trip (sessions are newest-first).
+    private var lastDriveScore: Int? {
+        sessionStore.sessions.first.map { tripSafeScore($0) }
+    }
+
+    private var lastTrip: TeenTrip? {
+        sessionStore.sessions.first
+    }
+
+    private var topIssueCard: (primary: String, secondary: String) {
+        guard let trip = lastTrip else { return ("None", "No trips yet") }
+
+        if trip.speedLimitAlertCount >= max(trip.drivingEventAlertCount, trip.harshStopAlertCount), trip.speedLimitAlertCount > 0 {
+            return ("Speeding", "\(trip.speedLimitAlertCount) event\(trip.speedLimitAlertCount == 1 ? "" : "s")")
+        }
+        if trip.drivingEventAlertCount > 0 {
+            return ("Hard Events", "\(trip.drivingEventAlertCount) event\(trip.drivingEventAlertCount == 1 ? "" : "s")")
+        }
+        if trip.harshStopAlertCount > 0 {
+            return ("Harsh Stops", "\(trip.harshStopAlertCount) stop\(trip.harshStopAlertCount == 1 ? "" : "s")")
+        }
+        return ("None", "Great driving")
+    }
+
+    private var tripCount: Int {
+        sessionStore.sessions.count
+    }
+
+    private var averageTripScore: Int? {
+        guard !sessionStore.sessions.isEmpty else { return nil }
+        let total = sessionStore.sessions.reduce(0) { $0 + tripSafeScore($1) }
+        return Int((Double(total) / Double(sessionStore.sessions.count)).rounded())
     }
 
     private var greetingName: String {
@@ -211,17 +253,23 @@ private struct TeenHomeView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                header
-                scoreRing
+        GeometryReader { proxy in
+            let compact = proxy.size.height < 780
 
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    statCard(title: "Last Drive", primary: "\(todaysDriveMinutes)", secondary: "min")
-                    statCard(title: "Top Issue", primary: tracker.currentTripAlertCount == 0 ? "None" : "Safety Alerts", secondary: tracker.currentTripAlertCount == 0 ? "Great driving" : "\(tracker.currentTripAlertCount) this drive")
-                    statCard(title: "Streak", primary: safeScore >= 80 ? "5" : "1", secondary: "safe drives")
-                    statCard(title: "Parent Status", primary: accountStore.connectedParentName.isEmpty ? "Not Connected" : "Connected", secondary: accountStore.connectedParentName.isEmpty ? "Open Profile to pair" : accountStore.connectedParentName)
+            VStack(spacing: compact ? 10 : 14) {
+                header
+                scoreRing(diameter: compact ? 160 : 195, lastDriveScore: lastDriveScore, compact: compact)
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: compact ? 8 : 10) {
+                    statCard(title: "Last Drive", primary: "\(todaysDriveMinutes)", secondary: "min", compact: compact)
+                    statCard(title: "Top Issue", primary: topIssueCard.primary, secondary: topIssueCard.secondary, compact: compact)
+                    statCard(title: "Trips", primary: "\(tripCount)", secondary: "total drives", compact: compact)
+                    statCard(title: "Avg Trip Score", primary: averageTripScore.map { "\($0)" } ?? "—", secondary: tripCount == 0 ? "No history yet" : "all trips", compact: compact)
+                    statCard(title: "Streak", primary: (lastDriveScore ?? 0) >= 80 ? "5" : "1", secondary: "safe drives", compact: compact)
+                    statCard(title: "Parent Status", primary: accountStore.connectedParentName.isEmpty ? "Not Connected" : "Connected", secondary: accountStore.connectedParentName.isEmpty ? "Open Profile to pair" : accountStore.connectedParentName, compact: compact)
                 }
+
+                Spacer(minLength: compact ? 4 : 10)
 
                 if needsPermission {
                     Button {
@@ -232,19 +280,11 @@ private struct TeenHomeView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
-
-                Button {
-                    tracker.isTracking ? tracker.stop() : tracker.start()
-                } label: {
-                    Label(tracker.isTracking ? "End Drive" : "Start Drive", systemImage: tracker.isTracking ? "stop.fill" : "car.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(tracker.isTracking ? .red : .blue)
-                .controlSize(.large)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, compact ? 12 : 16)
+            .padding(.top, compact ? 8 : 12)
+            .padding(.bottom, compact ? 8 : 12)
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("TeenDrive")
@@ -275,49 +315,53 @@ private struct TeenHomeView: View {
         }
     }
 
-    private var scoreRing: some View {
-        VStack(spacing: 8) {
+    private func scoreRing(diameter: CGFloat, lastDriveScore: Int?, compact: Bool) -> some View {
+        let ringProgress = lastDriveScore.map { CGFloat($0) / 100 } ?? 0
+        let praise = (lastDriveScore ?? 0) >= 80
+
+        return VStack(spacing: compact ? 4 : 8) {
             ZStack {
                 Circle()
-                    .stroke(Color.gray.opacity(0.2), lineWidth: 14)
+                    .stroke(Color.gray.opacity(0.2), lineWidth: compact ? 12 : 14)
                 Circle()
-                    .trim(from: 0, to: CGFloat(safeScore) / 100)
-                    .stroke(Color.green, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                    .trim(from: 0, to: ringProgress)
+                    .stroke(Color.green, style: StrokeStyle(lineWidth: compact ? 12 : 14, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 VStack(spacing: 2) {
-                    Text("\(safeScore)")
-                        .font(.system(size: 54, weight: .bold, design: .rounded))
+                    Text(lastDriveScore.map { "\($0)" } ?? "—")
+                        .font(.system(size: compact ? 44 : 54, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                    Text("Safe Score")
-                        .font(.headline)
+                    Text("Last drive")
+                        .font(compact ? .subheadline.weight(.semibold) : .headline)
                 }
             }
-            .frame(width: 220, height: 220)
-            Text(safeScore >= 80 ? "Great job!" : "Keep improving")
-                .font(.headline)
-                .foregroundStyle(safeScore >= 80 ? .green : .orange)
+            .frame(width: diameter, height: diameter)
+            Text(lastDriveScore == nil ? "Complete a drive to see your score" : (praise ? "Great job!" : "Keep improving"))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(lastDriveScore == nil ? Color.secondary : (praise ? Color.green : Color.orange))
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
+        .padding(.vertical, compact ? 4 : 6)
         .background(.background, in: RoundedRectangle(cornerRadius: 18))
     }
 
-    private func statCard(title: String, primary: String, secondary: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func statCard(title: String, primary: String, secondary: String, compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 4 : 6) {
             Text(title)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text(primary)
-                .font(.title2.bold())
+                .font((compact ? Font.title3 : .title2).bold())
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
             Text(secondary)
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
         }
-        .frame(maxWidth: .infinity, minHeight: 94, alignment: .leading)
-        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: compact ? 68 : 82, alignment: .leading)
+        .padding(compact ? 8 : 12)
         .background(.background, in: RoundedRectangle(cornerRadius: 14))
     }
 }

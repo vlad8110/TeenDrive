@@ -82,6 +82,7 @@ final class AccountStore: ObservableObject {
     }
 
     @Published private(set) var firebaseStatus = "Firebase account not connected"
+    private var teenProfileListener: ListenerRegistration?
 
     init() {
         let defaults = UserDefaults.standard
@@ -106,8 +107,16 @@ final class AccountStore: ObservableObject {
         parentProfileID = defaults.string(forKey: Keys.parentProfileID) ?? ""
     }
 
+    deinit {
+        teenProfileListener?.remove()
+    }
+
     var isPaired: Bool {
         !connectedParentName.isEmpty || !connectedTeens.isEmpty
+    }
+
+    var isPairingReady: Bool {
+        !teenProfileID.isEmpty && !familyGroupID.isEmpty
     }
 
     var pairingPayload: String {
@@ -139,6 +148,10 @@ final class AccountStore: ObservableObject {
 
     func connectParent(name: String, scannedPayload: String) async -> Bool {
         guard let pairing = Self.pairing(from: scannedPayload) else { return false }
+        guard !pairing.teenProfileID.isEmpty, !pairing.familyGroupID.isEmpty else {
+            firebaseStatus = "Teen QR is not cloud-ready. Open Account on the teen phone while online, then scan the new QR."
+            return false
+        }
         let parentName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         displayName = parentName
         connectedTeenCode = pairing.code
@@ -163,6 +176,8 @@ final class AccountStore: ObservableObject {
         connectedParentName = ""
         connectedTeenCode = ""
         connectedTeens = []
+        teenProfileListener?.remove()
+        teenProfileListener = nil
     }
 
     private static func makePairingCode() -> String {
@@ -208,9 +223,11 @@ final class AccountStore: ObservableObject {
 
             teenProfileID = profileID
             familyGroupID = groupID
+            await refreshConnectedParentName(teenProfileID: profileID, db: db)
+            startTeenProfileListener(teenProfileID: profileID, db: db)
             firebaseStatus = "Teen profile synced"
         } catch {
-            firebaseStatus = "Could not sync teen profile"
+            firebaseStatus = "Could not sync teen profile: \((error as NSError).localizedDescription)"
         }
     }
 
@@ -234,7 +251,7 @@ final class AccountStore: ObservableObject {
             parentProfileID = profileID
             firebaseStatus = "Parent profile synced"
         } catch {
-            firebaseStatus = "Could not sync parent profile"
+            firebaseStatus = "Could not sync parent profile: \((error as NSError).localizedDescription)"
         }
     }
 
@@ -277,7 +294,7 @@ final class AccountStore: ObservableObject {
 
             firebaseStatus = "Teen connected"
         } catch {
-            firebaseStatus = "Could not connect teen"
+            firebaseStatus = "Could not connect teen: \((error as NSError).localizedDescription)"
         }
     }
 
@@ -293,6 +310,36 @@ final class AccountStore: ObservableObject {
     private func normalizedDisplayName(fallback: String) -> String {
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? fallback : name
+    }
+
+    private func refreshConnectedParentName(teenProfileID: String, db: Firestore) async {
+        do {
+            let teenDocument = try await db.collection("teenProfiles").document(teenProfileID).getDocument()
+            let parentIDs = teenDocument.data()?["connectedParentIDs"] as? [String] ?? []
+            guard let parentID = parentIDs.first, !parentID.isEmpty else {
+                connectedParentName = ""
+                return
+            }
+
+            let parentDocument = try await db.collection("parentProfiles").document(parentID).getDocument()
+            let parentName = (parentDocument.data()?["displayName"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            connectedParentName = parentName
+        } catch {
+            firebaseStatus = "Could not refresh parent status: \((error as NSError).localizedDescription)"
+        }
+    }
+
+    private func startTeenProfileListener(teenProfileID: String, db: Firestore) {
+        teenProfileListener?.remove()
+        teenProfileListener = db.collection("teenProfiles")
+            .document(teenProfileID)
+            .addSnapshotListener { [weak self] _, _ in
+                guard let self else { return }
+                Task { @MainActor in
+                    await self.refreshConnectedParentName(teenProfileID: teenProfileID, db: db)
+                }
+            }
     }
 
     private static func pairing(from payload: String) -> (code: String, teenName: String, teenProfileID: String, familyGroupID: String)? {
