@@ -14,6 +14,8 @@ final class FirebaseBackend: NSObject, ObservableObject {
     @Published private(set) var authUserID: String?
     @Published private(set) var fcmToken: String?
     @Published var statusMessage = "Firebase not configured"
+    private var hasRequestedNotificationPermission = UserDefaults.standard.bool(forKey: Keys.hasRequestedNotificationPermission)
+    private var hasAPNSToken = false
 
     private override init() {
         super.init()
@@ -45,19 +47,19 @@ final class FirebaseBackend: NSObject, ObservableObject {
 
         if let user = Auth.auth().currentUser {
             authUserID = user.uid
-            await requestNotificationPermission()
-            refreshMessagingToken()
+            requestNotificationPermissionIfNeeded()
+            refreshMessagingTokenIfPossible()
             return user.uid
         }
 
         do {
             let result = try await Auth.auth().signInAnonymously()
             authUserID = result.user.uid
-            await requestNotificationPermission()
-            refreshMessagingToken()
+            requestNotificationPermissionIfNeeded()
+            refreshMessagingTokenIfPossible()
             return result.user.uid
         } catch {
-            statusMessage = "Firebase sign-in failed"
+            statusMessage = firebaseErrorMessage(prefix: "Firebase sign-in failed", error: error)
             return nil
         }
     }
@@ -66,18 +68,46 @@ final class FirebaseBackend: NSObject, ObservableObject {
         do {
             _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
         } catch {
-            statusMessage = "Notifications permission failed"
+            statusMessage = firebaseErrorMessage(prefix: "Notifications permission failed", error: error)
         }
     }
 
-    func refreshMessagingToken() {
+    func setAPNSToken(_ deviceToken: Data) {
         guard isConfigured else { return }
+        hasAPNSToken = true
+        Messaging.messaging().apnsToken = deviceToken
+        refreshMessagingTokenIfPossible()
+    }
+
+    func refreshMessagingTokenIfPossible() {
+        guard isConfigured, hasAPNSToken else { return }
         Messaging.messaging().token { [weak self] token, _ in
             Task { @MainActor in
                 self?.fcmToken = token
             }
         }
     }
+
+    private func requestNotificationPermissionIfNeeded() {
+        guard !hasRequestedNotificationPermission else { return }
+        hasRequestedNotificationPermission = true
+        UserDefaults.standard.set(true, forKey: Keys.hasRequestedNotificationPermission)
+        Task {
+            await requestNotificationPermission()
+        }
+    }
+
+    private func firebaseErrorMessage(prefix: String, error: Error) -> String {
+        let nsError = error as NSError
+        if let message = nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String {
+            return "\(prefix): \(message)"
+        }
+        return "\(prefix): \(nsError.localizedDescription)"
+    }
+}
+
+private enum Keys {
+    static let hasRequestedNotificationPermission = "firebase.hasRequestedNotificationPermission"
 }
 
 extension FirebaseBackend: MessagingDelegate {
@@ -102,6 +132,8 @@ final class TeenDriveAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
-        Messaging.messaging().apnsToken = deviceToken
+        Task { @MainActor in
+            FirebaseBackend.shared.setAPNSToken(deviceToken)
+        }
     }
 }

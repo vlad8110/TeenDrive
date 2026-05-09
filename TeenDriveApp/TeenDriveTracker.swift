@@ -49,7 +49,6 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         locationManager.distanceFilter = 1
         locationManager.pausesLocationUpdatesAutomatically = false
-        armAutoStartIfPossible()
     }
 
     var speedMPH: Double {
@@ -69,7 +68,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     }
 
     func requestPermission() {
-        locationManager.requestAlwaysAuthorization()
+        locationManager.requestWhenInUseAuthorization()
     }
 
     func start() {
@@ -395,9 +394,6 @@ extension TeenDriveTracker: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
             authorizationStatus = manager.authorizationStatus
-            if authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse {
-                armAutoStartIfPossible()
-            }
         }
     }
 

@@ -8,17 +8,19 @@ final class SessionStore: ObservableObject {
     private let fileURL: URL
     private weak var accountStore: AccountStore?
     private var localSessions: [TeenTrip] = []
-    private var remoteSessions: [TeenTrip] = []
-    private var listener: ListenerRegistration?
+    private var remoteSessionsBySource: [String: [TeenTrip]] = [:]
+    private var listeners: [ListenerRegistration] = []
 
     init(fileURL: URL? = nil) {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         self.fileURL = fileURL ?? documentsURL.appendingPathComponent("teen-drive-trips.json")
-        load()
+        Task {
+            await load()
+        }
     }
 
     deinit {
-        listener?.remove()
+        listeners.forEach { $0.remove() }
     }
 
     func configure(accountStore: AccountStore) {
@@ -46,44 +48,73 @@ final class SessionStore: ObservableObject {
     }
 
     func bindRemoteTrips() {
-        listener?.remove()
+        removeListeners()
         guard let accountStore,
               let db = FirebaseBackend.shared.database else {
-            remoteSessions = []
+            remoteSessionsBySource = [:]
             mergeSessions()
             return
         }
 
         if accountStore.role == .parent {
-            let teenIDs = Array(Set(accountStore.connectedTeens.map(\.teenProfileID).filter { !$0.isEmpty }))
-            guard !teenIDs.isEmpty else {
-                remoteSessions = []
+            let connectedTeens = accountStore.connectedTeens.filter {
+                !$0.teenProfileID.isEmpty && !$0.familyGroupID.isEmpty
+            }
+            guard !connectedTeens.isEmpty else {
+                remoteSessionsBySource = [:]
                 mergeSessions()
                 return
             }
 
-            listener = db.collectionGroup("trips")
-                .whereField("teenID", in: Array(teenIDs.prefix(10)))
-                .addSnapshotListener { [weak self] snapshot, _ in
-                    Task { @MainActor in
-                        self?.remoteSessions = snapshot?.documents.compactMap(TeenTrip.init(document:)) ?? []
-                        self?.mergeSessions()
+            let activeSourceIDs = Set(connectedTeens.map(\.teenProfileID))
+            remoteSessionsBySource = remoteSessionsBySource.filter { activeSourceIDs.contains($0.key) }
+
+            for teen in connectedTeens {
+                let sourceID = teen.teenProfileID
+                let listener = db.collection("familyGroups")
+                    .document(teen.familyGroupID)
+                    .collection("teens")
+                    .document(teen.teenProfileID)
+                    .collection("trips")
+                    .order(by: "startedAt", descending: true)
+                    .addSnapshotListener { [weak self] snapshot, error in
+                        Task { @MainActor in
+                            if let error {
+                                FirebaseBackend.shared.statusMessage = "Could not load parent trips: \((error as NSError).localizedDescription)"
+                                self?.remoteSessionsBySource[sourceID] = []
+                            } else {
+                                self?.remoteSessionsBySource[sourceID] = snapshot?.documents.compactMap(TeenTrip.init(document:)) ?? []
+                            }
+                            self?.mergeSessions()
+                        }
                     }
-                }
+                listeners.append(listener)
+            }
         } else {
-            guard !accountStore.familyGroupID.isEmpty, !accountStore.teenProfileID.isEmpty else { return }
-            listener = db.collection("familyGroups")
+            guard !accountStore.familyGroupID.isEmpty, !accountStore.teenProfileID.isEmpty else {
+                remoteSessionsBySource = [:]
+                mergeSessions()
+                return
+            }
+            let sourceID = accountStore.teenProfileID
+            let listener = db.collection("familyGroups")
                 .document(accountStore.familyGroupID)
                 .collection("teens")
                 .document(accountStore.teenProfileID)
                 .collection("trips")
                 .order(by: "startedAt", descending: true)
-                .addSnapshotListener { [weak self] snapshot, _ in
+                .addSnapshotListener { [weak self] snapshot, error in
                     Task { @MainActor in
-                        self?.remoteSessions = snapshot?.documents.compactMap(TeenTrip.init(document:)) ?? []
+                        if let error {
+                            FirebaseBackend.shared.statusMessage = "Could not load teen trips: \((error as NSError).localizedDescription)"
+                            self?.remoteSessionsBySource[sourceID] = []
+                        } else {
+                            self?.remoteSessionsBySource[sourceID] = snapshot?.documents.compactMap(TeenTrip.init(document:)) ?? []
+                        }
                         self?.mergeSessions()
                     }
                 }
+            listeners.append(listener)
         }
     }
 
@@ -119,17 +150,21 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    private func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-
-        do {
-            localSessions = try JSONDecoder.sessionDecoder.decode([TeenTrip].self, from: data)
-                .sorted { $0.startedAt > $1.startedAt }
-            mergeSessions()
-        } catch {
-            localSessions = []
-            mergeSessions()
+    private func load() async {
+        let diskSessions = await Self.readSessions(from: fileURL)
+        var byID = Dictionary(uniqueKeysWithValues: localSessions.map { ($0.id, $0) })
+        for session in diskSessions where byID[session.id] == nil {
+            byID[session.id] = session
         }
+        localSessions = byID.values.sorted { $0.startedAt > $1.startedAt }
+        mergeSessions()
+    }
+
+    private static func readSessions(from fileURL: URL) async -> [TeenTrip] {
+        await Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: fileURL) else { return [] }
+            return (try? JSONDecoder.sessionDecoder.decode([TeenTrip].self, from: data)) ?? []
+        }.value
     }
 
     private func save() {
@@ -142,10 +177,16 @@ final class SessionStore: ObservableObject {
     }
 
     private func mergeSessions() {
+        let remoteSessions = remoteSessionsBySource.values.flatMap { $0 }
         let merged = (remoteSessions + localSessions).reduce(into: [UUID: TeenTrip]()) { result, session in
             result[session.id] = session
         }
         sessions = merged.values.sorted { $0.startedAt > $1.startedAt }
+    }
+
+    private func removeListeners() {
+        listeners.forEach { $0.remove() }
+        listeners = []
     }
 }
 
