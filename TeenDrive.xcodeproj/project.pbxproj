@@ -36,6 +36,8 @@
 		A1000000000000000000001B /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = A91000000000000000000004 /* FirebaseFirestore */; };
 		A1000000000000000000001C /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = A91000000000000000000005 /* FirebaseMessaging */; };
 		A1000000000000000000001D /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* GoogleService-Info.plist */; };
+		A1000000000000000000001E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* Assets.xcassets */; };
+		A1000000000000000000001F /* RoadSpeedLimitProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* RoadSpeedLimitProvider.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -91,6 +93,8 @@
 		A20000000000000000000020 /* TeenDriveNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeenDriveNotifications.swift; sourceTree = "<group>"; };
 		A20000000000000000000022 /* TeenDrive.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TeenDrive.entitlements; sourceTree = "<group>"; };
 		A20000000000000000000023 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		A20000000000000000000024 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A20000000000000000000025 /* RoadSpeedLimitProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoadSpeedLimitProvider.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -142,11 +146,13 @@
 				A20000000000000000000018 /* AccountStore.swift */,
 				A20000000000000000000015 /* SafetyAlertSettings.swift */,
 				A20000000000000000000012 /* SessionStore.swift */,
+				A20000000000000000000025 /* RoadSpeedLimitProvider.swift */,
 				A2000000000000000000001D /* FirebaseBackend.swift */,
 				A2000000000000000000001E /* FirebaseModels.swift */,
 				A2000000000000000000001F /* FirebaseTripMapper.swift */,
 				A20000000000000000000020 /* TeenDriveNotifications.swift */,
 				A20000000000000000000004 /* TeenDriveActivityAttributes.swift */,
+				A20000000000000000000024 /* Assets.xcassets */,
 				A20000000000000000000005 /* Info.plist */,
 				A20000000000000000000023 /* GoogleService-Info.plist */,
 				A20000000000000000000022 /* TeenDrive.entitlements */,
@@ -263,6 +269,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1000000000000000000001E /* Assets.xcassets in Resources */,
 				A1000000000000000000001D /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -296,6 +303,7 @@
 				A10000000000000000000010 /* AccountStore.swift in Sources */,
 				A1000000000000000000000D /* SafetyAlertSettings.swift in Sources */,
 				A1000000000000000000000A /* SessionStore.swift in Sources */,
+				A1000000000000000000001F /* RoadSpeedLimitProvider.swift in Sources */,
 				A10000000000000000000015 /* FirebaseBackend.swift in Sources */,
 				A10000000000000000000016 /* FirebaseModels.swift in Sources */,
 				A10000000000000000000017 /* FirebaseTripMapper.swift in Sources */,

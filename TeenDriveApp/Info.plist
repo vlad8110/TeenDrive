@@ -23,7 +23,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Teen Drive uses background location to auto-start trips, save routes, and keep trip safety status updated.</string>
+	<string>Teen Drive uses Always Location to auto-start drives, save routes in the background, and share live drive status with connected parents.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Teen Drive uses your location to calculate speed, save trip history, and record route maps.</string>
 	<key>NSCameraUsageDescription</key>
@@ -34,10 +34,6 @@
 	<array>
 		<string>location</string>
 		<string>remote-notification</string>
-		<string>nearby-interaction</string>
-		<string>bluetooth-central</string>
-		<string>processing</string>
-		<string>fetch</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

@@ -1,14 +1,26 @@
 import FirebaseFirestore
 import Foundation
 
+struct ParentTripSummary: Identifiable, Hashable {
+    var id: String { "\(teenProfileID)-\(trip.id.uuidString)" }
+    let teenProfileID: String
+    let familyGroupID: String
+    let teenName: String
+    let trip: TeenTrip
+}
+
 @MainActor
 final class SessionStore: ObservableObject {
     @Published private(set) var sessions: [TeenTrip] = []
+    @Published private(set) var parentTripSummaries: [ParentTripSummary] = []
+    @Published private(set) var activeTeenDrives: [ActiveTeenDrive] = []
 
     private let fileURL: URL
     private weak var accountStore: AccountStore?
     private var localSessions: [TeenTrip] = []
     private var remoteSessionsBySource: [String: [TeenTrip]] = [:]
+    private var remoteTeenInfoBySource: [String: ConnectedTeen] = [:]
+    private var activeDrivesBySource: [String: ActiveTeenDrive] = [:]
     private var listeners: [ListenerRegistration] = []
 
     init(fileURL: URL? = nil) {
@@ -62,12 +74,17 @@ final class SessionStore: ObservableObject {
             }
             guard !connectedTeens.isEmpty else {
                 remoteSessionsBySource = [:]
+                remoteTeenInfoBySource = [:]
+                activeDrivesBySource = [:]
+                activeTeenDrives = []
                 mergeSessions()
                 return
             }
 
             let activeSourceIDs = Set(connectedTeens.map(\.teenProfileID))
             remoteSessionsBySource = remoteSessionsBySource.filter { activeSourceIDs.contains($0.key) }
+            remoteTeenInfoBySource = Dictionary(uniqueKeysWithValues: connectedTeens.map { ($0.teenProfileID, $0) })
+            activeDrivesBySource = activeDrivesBySource.filter { activeSourceIDs.contains($0.key) }
 
             for teen in connectedTeens {
                 let sourceID = teen.teenProfileID
@@ -89,10 +106,33 @@ final class SessionStore: ObservableObject {
                         }
                     }
                 listeners.append(listener)
+
+                let activeDriveListener = db.collection("familyGroups")
+                    .document(teen.familyGroupID)
+                    .collection("teens")
+                    .document(teen.teenProfileID)
+                    .collection("activeDrive")
+                    .document("current")
+                    .addSnapshotListener { [weak self] document, _ in
+                        Task { @MainActor in
+                            if let document,
+                               let drive = ActiveTeenDrive(document: document, teen: teen) {
+                                self?.activeDrivesBySource[sourceID] = drive
+                            } else {
+                                self?.activeDrivesBySource.removeValue(forKey: sourceID)
+                            }
+                            self?.mergeActiveDrives()
+                        }
+                    }
+                listeners.append(activeDriveListener)
             }
         } else {
+            remoteTeenInfoBySource = [:]
             guard !accountStore.familyGroupID.isEmpty, !accountStore.teenProfileID.isEmpty else {
                 remoteSessionsBySource = [:]
+                parentTripSummaries = []
+                activeDrivesBySource = [:]
+                activeTeenDrives = []
                 mergeSessions()
                 return
             }
@@ -115,6 +155,9 @@ final class SessionStore: ObservableObject {
                     }
                 }
             listeners.append(listener)
+            parentTripSummaries = []
+            activeDrivesBySource = [:]
+            activeTeenDrives = []
         }
     }
 
@@ -182,6 +225,22 @@ final class SessionStore: ObservableObject {
             result[session.id] = session
         }
         sessions = merged.values.sorted { $0.startedAt > $1.startedAt }
+        parentTripSummaries = remoteSessionsBySource.flatMap { sourceID, sessions in
+            sessions.map { session in
+                let teen = remoteTeenInfoBySource[sourceID]
+                return ParentTripSummary(
+                    teenProfileID: teen?.teenProfileID ?? sourceID,
+                    familyGroupID: teen?.familyGroupID ?? "",
+                    teenName: teen?.name ?? "Teen",
+                    trip: session
+                )
+            }
+        }
+        .sorted { $0.trip.startedAt > $1.trip.startedAt }
+    }
+
+    private func mergeActiveDrives() {
+        activeTeenDrives = activeDrivesBySource.values.sorted { $0.updatedAt > $1.updatedAt }
     }
 
     private func removeListeners() {

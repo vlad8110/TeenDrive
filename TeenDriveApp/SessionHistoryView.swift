@@ -3,8 +3,17 @@ import SwiftUI
 
 struct SessionHistoryView: View {
     @ObservedObject var store: SessionStore
+    var usesTeenHeader = false
 
     var body: some View {
+        if usesTeenHeader {
+            teenHistoryBody
+        } else {
+            standardHistoryBody
+        }
+    }
+
+    private var standardHistoryBody: some View {
         List {
             if store.sessions.isEmpty {
                 ContentUnavailableView("No Trips", systemImage: "car", description: Text("Start a drive to save the first route."))
@@ -20,6 +29,64 @@ struct SessionHistoryView: View {
             }
         }
         .navigationTitle("Trip History")
+    }
+
+    private var teenHistoryBody: some View {
+        GeometryReader { proxy in
+            let compact = proxy.size.height < 760
+
+            VStack(alignment: .leading, spacing: compact ? 7 : 9) {
+                TeenScreenHeader(title: "Reports", compact: compact) {
+                    Text(store.sessions.isEmpty ? "No trips yet" : "\(store.sessions.count) saved trip\(store.sessions.count == 1 ? "" : "s")")
+                        .foregroundStyle(.white.opacity(0.62))
+                } actions: {
+                    EmptyView()
+                }
+
+                if store.sessions.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "car")
+                            .font(.system(size: 38, weight: .semibold))
+                            .foregroundStyle(.green)
+                        Text("No Trips")
+                            .font(.headline.bold())
+                            .foregroundStyle(.white)
+                        Text("Start a drive to save the first route.")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.62))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                } else {
+                    List {
+                        ForEach(store.sessions) { session in
+                            NavigationLink {
+                                SessionDetailView(session: session)
+                            } label: {
+                                SessionRow(session: session)
+                                    .padding(12)
+                                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                            }
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                        }
+                        .onDelete(perform: store.delete)
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .foregroundStyle(.white)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, compact ? 14 : 18)
+            .padding(.top, compact ? 22 : 34)
+            .padding(.bottom, 4)
+        }
+        .background(Color.black)
+        .toolbar(.hidden, for: .navigationBar)
     }
 }
 

@@ -29,9 +29,23 @@ service cloud.firestore {
       match /teens/{teenID} {
         allow read: if ownsTeen(teenID) ||
           request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
-        allow write: if ownsTeen(teenID);
+        allow create: if ownsTeen(teenID) || (
+          request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs &&
+          request.resource.data.keys().hasOnly(["connectedParentIDs", "updatedAt"])
+        );
+        allow update: if ownsTeen(teenID) || (
+          request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(["connectedParentIDs", "updatedAt"])
+        );
+        allow delete: if false;
 
         match /trips/{tripID} {
+          allow read: if ownsTeen(teenID) ||
+            request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
+          allow write: if ownsTeen(teenID);
+        }
+
+        match /activeDrive/{driveID} {
           allow read: if ownsTeen(teenID) ||
             request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
           allow write: if ownsTeen(teenID);

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AccountSettingsView: View {
     @ObservedObject var accountStore: AccountStore
+    var usesTeenHeader = false
     @State private var parentName = ""
     @State private var isShowingScanner = false
     @State private var scanErrorMessage: String?
@@ -18,28 +19,13 @@ struct AccountSettingsView: View {
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 10) {
-                headerCard
-                syncCard
-                profileCard
-
-                if accountStore.role == .teen {
-                    teenPairingCard
-                } else {
-                    parentPairingCard
-                }
-
-                if accountStore.isPaired || accountStore.role == .parent {
-                    disconnectCard
-                }
+        Group {
+            if usesTeenHeader {
+                teenProfileBody
+            } else {
+                standardProfileBody
             }
-            .padding(12)
-            .padding(.bottom, 12)
         }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("Profile")
-        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             parentName = accountStore.displayName
         }
@@ -67,13 +53,70 @@ struct AccountSettingsView: View {
         }
     }
 
+    private var standardProfileBody: some View {
+        profileContent
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Profile")
+            .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var teenProfileBody: some View {
+        GeometryReader { proxy in
+            let compact = proxy.size.height < 760
+
+            VStack(alignment: .leading, spacing: compact ? 7 : 9) {
+                TeenScreenHeader(title: "Profile", compact: compact) {
+                    Text(displayName)
+                        .foregroundStyle(.white.opacity(0.62))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                } actions: {
+                    EmptyView()
+                }
+
+                profileContent
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, compact ? 14 : 18)
+            .padding(.top, compact ? 22 : 34)
+            .padding(.bottom, 4)
+        }
+        .background(Color.black)
+        .environment(\.colorScheme, .dark)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var profileContent: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 10) {
+                if !usesTeenHeader {
+                    headerCard
+                }
+                syncCard
+                profileCard
+
+                if accountStore.role == .teen {
+                    teenPairingCard
+                } else {
+                    parentPairingCard
+                }
+
+                if accountStore.isPaired || accountStore.role == .parent {
+                    disconnectCard
+                }
+            }
+            .padding(12)
+            .padding(.bottom, 12)
+        }
+    }
+
     private var headerCard: some View {
         VStack(spacing: 8) {
             ZStack {
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: [.blue, .green],
+                            colors: [.green, Color.green.opacity(0.55)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -160,15 +203,36 @@ struct AccountSettingsView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            if accountStore.connectedParentName.isEmpty {
+            if !accountStore.hasConnectedParent {
                 Text(accountStore.firebaseStatus)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             } else {
-                Label("Connected to \(accountStore.connectedParentName)", systemImage: "checkmark.circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.green)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(accountStore.connectedParentDisplayName, systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.green)
+
+                    ForEach(accountStore.connectedParents) { parent in
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.fill")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 26, height: 26)
+                                .background(Color.green, in: Circle())
+
+                            Text(parent.displayName)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.primary)
+
+                            Spacer()
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
             }
 
             Button {
@@ -192,7 +256,7 @@ struct AccountSettingsView: View {
                 Spacer()
                 Text("\(accountStore.connectedTeens.count)")
                     .font(.headline.monospacedDigit())
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(.green)
             }
 
             TextField("Parent name", text: $parentName)
@@ -244,12 +308,12 @@ struct AccountSettingsView: View {
     }
 
     private var pairingBadge: some View {
-        Text(accountStore.connectedParentName.isEmpty ? "Open" : "Paired")
+        Text(accountStore.hasConnectedParent ? "Paired" : "Open")
             .font(.caption.weight(.bold))
-            .foregroundStyle(accountStore.connectedParentName.isEmpty ? .blue : .green)
+            .foregroundStyle(.green)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background((accountStore.connectedParentName.isEmpty ? Color.blue : Color.green).opacity(0.12), in: Capsule())
+            .background(Color.green.opacity(0.12), in: Capsule())
     }
 
     private var syncColor: Color {
@@ -257,7 +321,7 @@ struct AccountSettingsView: View {
         case .idle:
             return .secondary
         case .syncing:
-            return .blue
+            return .green
         case .upToDate:
             return .green
         case .blocked, .failed:
@@ -283,7 +347,7 @@ struct AccountSettingsView: View {
             Image(systemName: "person.fill")
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
-                .background(Color.blue, in: Circle())
+                .background(Color.green, in: Circle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(teen.name)

@@ -1,5 +1,6 @@
 import ActivityKit
 import CoreLocation
+import FirebaseFirestore
 import Foundation
 
 @MainActor
@@ -18,6 +19,9 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     @Published private(set) var activeTripStartedAt: Date?
     @Published private(set) var lastKnownLocation: RoutePoint?
     @Published private(set) var currentRoute: [RoutePoint] = []
+    @Published private(set) var roadSpeedLimitMPH: Double?
+    @Published private(set) var roadSpeedLimitRoadName: String?
+    @Published private(set) var roadSpeedLimitStatus = "Using fallback alert limit"
     @Published private(set) var authorizationStatus: CLAuthorizationStatus
     @Published private(set) var isTracking = false
     @Published private(set) var isAutoStartArmed = false
@@ -27,6 +31,8 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     private let sessionStore: SessionStore
     private let safetySettings: SafetyAlertSettings
     private let accountStore: AccountStore
+    private let roadSpeedLimitProvider = RoadSpeedLimitProvider()
+    private var roadSpeedLimitLookupTask: Task<Void, Never>?
     private var previousLocation: CLLocation?
     private var previousSpeedSample: (speed: Double, timestamp: Date)?
     private var startedAt = Date()
@@ -37,6 +43,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     private var isOverSpeedAlertThreshold = false
     private var lastDrivingEventAt: Date?
     private var visitedPlaceIDs: Set<UUID> = []
+    private var lastActiveDriveSyncAt: Date?
     private var liveActivity: Activity<TeenDriveActivityAttributes>?
 
     init(sessionStore: SessionStore, safetySettings: SafetyAlertSettings, accountStore: AccountStore) {
@@ -65,11 +72,52 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     }
 
     var speedAlertThresholdMPH: Double {
-        safetySettings.speedLimitMPH
+        activeSpeedLimitMPH
+    }
+
+    var activeSpeedLimitMPH: Double {
+        roadSpeedLimitMPH ?? safetySettings.speedLimitMPH
+    }
+
+    var isUsingRoadSpeedLimit: Bool {
+        roadSpeedLimitMPH != nil
+    }
+
+    var roadSpeedLimitsEnabled: Bool {
+        safetySettings.roadSpeedLimitsEnabled
     }
 
     func requestPermission() {
-        locationManager.requestWhenInUseAuthorization()
+        switch authorizationStatus {
+        case .notDetermined:
+            statusMessage = "Allow location to track drives"
+            locationManager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse:
+            requestAlwaysPermission()
+        case .authorizedAlways:
+            armAutoStartIfPossible(statusMessage: "Background tracking ready")
+        case .denied, .restricted:
+            statusMessage = "Enable Location in Settings"
+        @unknown default:
+            statusMessage = "Location access is needed"
+        }
+    }
+
+    func requestAlwaysPermission() {
+        switch authorizationStatus {
+        case .notDetermined:
+            statusMessage = "Allow location first"
+            locationManager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse:
+            statusMessage = "Choose Always Allow for background tracking"
+            locationManager.requestAlwaysAuthorization()
+        case .authorizedAlways:
+            armAutoStartIfPossible(statusMessage: "Background tracking ready")
+        case .denied, .restricted:
+            statusMessage = "Enable Always Location in Settings"
+        @unknown default:
+            statusMessage = "Location access is needed"
+        }
     }
 
     func centerMapOnCurrentLocation() {
@@ -107,6 +155,9 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         currentTripAlertCount = 0
         lastKnownLocation = nil
         currentRoute = []
+        roadSpeedLimitMPH = nil
+        roadSpeedLimitRoadName = nil
+        roadSpeedLimitStatus = "Finding road speed limit"
         previousLocation = nil
         previousSpeedSample = nil
         route = []
@@ -121,7 +172,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         isTracking = true
         isAutoStartArmed = false
         statusMessage = automatic ? "Drive auto-started" : "Drive tracking"
-        locationManager.allowsBackgroundLocationUpdates = true
+        locationManager.allowsBackgroundLocationUpdates = authorizationStatus == .authorizedAlways
         locationManager.startUpdatingLocation()
         if safetySettings.tripStartedAlertsEnabled {
             recordSafetyAlert(kind: .tripStarted, timestamp: startedAt, note: automatic ? "Auto-started over 5 mph" : "Started manually")
@@ -129,6 +180,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         if let initialLocation {
             handle(location: initialLocation)
         }
+        syncActiveDrive(force: true)
         startLiveActivity()
     }
 
@@ -144,6 +196,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         activeTripStartedAt = nil
         statusMessage = reason
         saveSession()
+        clearActiveDrive()
         endLiveActivity()
         armAutoStartIfPossible(statusMessage: reason)
     }
@@ -153,6 +206,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         speedMetersPerSecond = measuredSpeed
 
         updateLiveLocation(for: location)
+        updateRoadSpeedLimitIfNeeded(for: location)
 
         guard isTracking else {
             if measuredSpeed >= autoStartThresholdMetersPerSecond {
@@ -183,6 +237,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         if !isOverSpeedAlertThreshold {
             statusMessage = location.horizontalAccuracy > 25 ? "Drive tracking, low GPS accuracy" : "Drive tracking"
         }
+        syncActiveDrive()
         updateLiveActivity()
     }
 
@@ -196,7 +251,8 @@ final class TeenDriveTracker: NSObject, ObservableObject {
             return
         }
 
-        if speedMetersPerSecond >= safetySettings.speedLimitMPH / 2.2369362921 {
+        let speedLimitMPH = activeSpeedLimitMPH
+        if speedMetersPerSecond >= speedLimitMPH / 2.2369362921 {
             guard !isOverSpeedAlertThreshold else { return }
             isOverSpeedAlertThreshold = true
 
@@ -213,7 +269,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
                 speedMetersPerSecond: speedMetersPerSecond,
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude,
-                note: String(format: "Over %.0f mph limit", safetySettings.speedLimitMPH)
+                note: String(format: "Over %.0f mph limit", speedLimitMPH)
             )
             statusMessage = String(format: "Speed alert: %.0f mph", alert.speedMPH)
         } else {
@@ -281,6 +337,32 @@ final class TeenDriveTracker: NSObject, ObservableObject {
                 note: place.name
             )
             statusMessage = "Arrived at \(place.name)"
+        }
+    }
+
+    private func updateRoadSpeedLimitIfNeeded(for location: CLLocation) {
+        guard safetySettings.roadSpeedLimitsEnabled,
+              CLLocationCoordinate2DIsValid(location.coordinate),
+              location.horizontalAccuracy >= 0,
+              location.horizontalAccuracy <= 100 else {
+            roadSpeedLimitMPH = nil
+            roadSpeedLimitRoadName = nil
+            roadSpeedLimitStatus = "Using fallback alert limit"
+            return
+        }
+
+        guard roadSpeedLimitLookupTask == nil else { return }
+        let latitude = location.coordinate.latitude
+        let longitude = location.coordinate.longitude
+
+        roadSpeedLimitLookupTask = Task { [roadSpeedLimitProvider] in
+            let lookup = await roadSpeedLimitProvider.lookup(latitude: latitude, longitude: longitude)
+            await MainActor.run {
+                roadSpeedLimitLookupTask = nil
+                roadSpeedLimitMPH = lookup.limitMPH
+                roadSpeedLimitRoadName = lookup.roadName
+                roadSpeedLimitStatus = lookup.sourceDescription
+            }
         }
     }
 
@@ -374,8 +456,91 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         )
         safetyAlerts.append(alert)
         currentTripAlertCount = safetyAlerts.count
+        syncActiveDrive(force: true)
         Task {
             await TeenDriveNotifications.shared.record(alert: alert, accountStore: accountStore)
+        }
+    }
+
+    private func syncActiveDrive(force: Bool = false) {
+        guard isTracking,
+              accountStore.role == .teen,
+              let db = FirebaseBackend.shared.database,
+              !accountStore.familyGroupID.isEmpty,
+              !accountStore.teenProfileID.isEmpty else {
+            return
+        }
+
+        let now = Date()
+        if !force,
+           let lastActiveDriveSyncAt,
+           now.timeIntervalSince(lastActiveDriveSyncAt) < 5 {
+            return
+        }
+        lastActiveDriveSyncAt = now
+
+        let displayName = accountStore.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let routeSnapshot = Array(route.suffix(160))
+        var data: [String: Any] = [
+            "isActive": true,
+            "teenID": accountStore.teenProfileID,
+            "familyGroupID": accountStore.familyGroupID,
+            "teenName": displayName.isEmpty ? "Teen" : displayName,
+            "startedAt": Timestamp(date: startedAt),
+            "updatedAt": Timestamp(date: now),
+            "speedMetersPerSecond": speedMetersPerSecond,
+            "topSpeedMetersPerSecond": topSpeedMetersPerSecond,
+            "distanceMeters": distanceMeters,
+            "alertCount": currentTripAlertCount,
+            "route": routeSnapshot.map(\.firestoreData)
+        ]
+        if let lastKnownLocation {
+            data["lastKnownLocation"] = lastKnownLocation.firestoreData
+        }
+
+        Task {
+            do {
+                try await db.collection("familyGroups")
+                    .document(accountStore.familyGroupID)
+                    .collection("teens")
+                    .document(accountStore.teenProfileID)
+                    .collection("activeDrive")
+                    .document("current")
+                    .setData(data, merge: true)
+            } catch {
+                FirebaseBackend.shared.statusMessage = "Could not sync live drive"
+            }
+        }
+    }
+
+    private func clearActiveDrive() {
+        guard accountStore.role == .teen,
+              let db = FirebaseBackend.shared.database,
+              !accountStore.familyGroupID.isEmpty,
+              !accountStore.teenProfileID.isEmpty else {
+            return
+        }
+
+        let data: [String: Any] = [
+            "isActive": false,
+            "teenID": accountStore.teenProfileID,
+            "familyGroupID": accountStore.familyGroupID,
+            "updatedAt": Timestamp(date: Date()),
+            "endedAt": Timestamp(date: Date())
+        ]
+
+        Task {
+            do {
+                try await db.collection("familyGroups")
+                    .document(accountStore.familyGroupID)
+                    .collection("teens")
+                    .document(accountStore.teenProfileID)
+                    .collection("activeDrive")
+                    .document("current")
+                    .setData(data, merge: true)
+            } catch {
+                FirebaseBackend.shared.statusMessage = "Could not clear live drive"
+            }
         }
     }
 
@@ -429,6 +594,19 @@ extension TeenDriveTracker: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
             authorizationStatus = manager.authorizationStatus
+            switch manager.authorizationStatus {
+            case .authorizedAlways:
+                armAutoStartIfPossible(statusMessage: "Background tracking ready")
+            case .authorizedWhenInUse:
+                statusMessage = "Enable Always Location for background tracking"
+            case .denied, .restricted:
+                isAutoStartArmed = false
+                statusMessage = "Location access is needed"
+            case .notDetermined:
+                statusMessage = "Ready"
+            @unknown default:
+                statusMessage = "Location status changed"
+            }
         }
     }
 

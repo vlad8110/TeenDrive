@@ -15,15 +15,21 @@ struct SafetyAlertSettingsView: View {
             }
 
             Section("Speed Limit") {
+                Toggle("Use road speed limits", isOn: $settings.roadSpeedLimitsEnabled)
+
                 Stepper(value: $settings.speedLimitMPH, in: 45...100, step: 5) {
                     HStack {
-                        Text("Alert at")
+                        Text(settings.roadSpeedLimitsEnabled ? "Fallback alert at" : "Alert at")
                         Spacer()
                         Text(String(format: "%.0f mph", settings.speedLimitMPH))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                Text("Road limits use available OpenStreetMap data. The fallback limit is used when the current road has no mapped speed limit or the lookup is unavailable.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Saved Places") {

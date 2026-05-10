@@ -5,11 +5,27 @@ struct ParentDashboardView: View {
     @ObservedObject var store: SessionStore
     @ObservedObject var tracker: TeenDriveTracker
     @ObservedObject var accountStore: AccountStore
+    @State private var selectedTeenFilterID = "all"
+
+    private var visibleTripSummaries: [ParentTripSummary] {
+        guard selectedTeenFilterID != "all" else { return store.parentTripSummaries }
+        return store.parentTripSummaries.filter { $0.teenProfileID == selectedTeenFilterID }
+    }
+
+    private var visibleActiveDrives: [ActiveTeenDrive] {
+        guard selectedTeenFilterID != "all" else { return store.activeTeenDrives }
+        return store.activeTeenDrives.filter { $0.teenProfileID == selectedTeenFilterID }
+    }
+
+    private var cloudConnectedTeens: [ConnectedTeen] {
+        accountStore.connectedTeens.filter { !$0.teenProfileID.isEmpty }
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 accountSection
+                teenFilterBar
                 activeDriveSection
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -17,15 +33,15 @@ struct ParentDashboardView: View {
                         .font(.title2.bold())
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if store.sessions.isEmpty {
+                    if visibleTripSummaries.isEmpty {
                         ContentUnavailableView("No Trips", systemImage: "car", description: Text("Completed drives will appear here."))
                             .padding(.vertical, 24)
                     } else {
-                        ForEach(store.sessions) { session in
+                        ForEach(visibleTripSummaries) { summary in
                             NavigationLink {
-                                SessionDetailView(session: session)
+                                SessionDetailView(session: summary.trip)
                             } label: {
-                                ParentTripCard(session: session)
+                                ParentTripCard(summary: summary)
                             }
                             .buttonStyle(.plain)
                         }
@@ -36,6 +52,35 @@ struct ParentDashboardView: View {
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Parent")
+    }
+
+    @ViewBuilder
+    private var teenFilterBar: some View {
+        if cloudConnectedTeens.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    teenFilterButton(title: "All", id: "all")
+                    ForEach(cloudConnectedTeens) { teen in
+                        teenFilterButton(title: teen.name, id: teen.teenProfileID)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private func teenFilterButton(title: String, id: String) -> some View {
+        Button {
+            selectedTeenFilterID = id
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(selectedTeenFilterID == id ? .white : .green)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(selectedTeenFilterID == id ? Color.green : Color(.secondarySystemGroupedBackground), in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private var accountSection: some View {
@@ -53,12 +98,12 @@ struct ParentDashboardView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-            } else if accountStore.connectedParentName.isEmpty {
+            } else if !accountStore.hasConnectedParent {
                 Text("No parent connected. Open Account to show the pairing QR.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Connected parent: \(accountStore.connectedParentName)")
+                Text("Connected parent: \(accountStore.connectedParentDisplayName)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -72,42 +117,24 @@ struct ParentDashboardView: View {
     private var activeDriveSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label(tracker.isTracking ? "Drive Active" : "No Active Drive", systemImage: tracker.isTracking ? "location.fill" : "location.slash")
+                Label(visibleActiveDrives.isEmpty ? "No Active Drive" : "Live Teen Drive", systemImage: visibleActiveDrives.isEmpty ? "location.slash" : "location.fill")
                     .font(.headline)
-                    .foregroundStyle(tracker.isTracking ? .green : .secondary)
+                    .foregroundStyle(visibleActiveDrives.isEmpty ? Color.secondary : Color.green)
                 Spacer()
-                Text(tracker.statusMessage)
+                Text(visibleActiveDrives.isEmpty ? "Waiting" : "\(visibleActiveDrives.count) active")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
-            if tracker.isTracking {
-                HStack(spacing: 12) {
-                    ParentMetric(title: "Current", value: String(format: "%.0f mph", tracker.speedMPH))
-                    ParentMetric(title: "Top", value: String(format: "%.0f mph", tracker.topSpeedMPH))
-                    ParentMetric(title: "Alerts", value: "\(tracker.currentTripAlertCount)")
-                }
-
-                if let startedAt = tracker.activeTripStartedAt {
-                    Text("Started \(startedAt.formatted(date: .omitted, time: .shortened))")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let point = tracker.lastKnownLocation {
-                    LastKnownLocationMap(point: point)
-                        .frame(height: 180)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                    Text("Last known \(point.timestamp.formatted(date: .omitted, time: .shortened))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Text("Last known location appears only while the teen drive is actively tracking and location permission allows updates.")
+            if visibleActiveDrives.isEmpty {
+                Text("Live location appears only while a connected teen is actively tracking and location permission allows updates.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+            } else {
+                ForEach(visibleActiveDrives) { drive in
+                    ActiveTeenDriveCard(drive: drive)
+                }
             }
         }
         .padding(16)
@@ -116,12 +143,19 @@ struct ParentDashboardView: View {
 }
 
 private struct ParentTripCard: View {
-    let session: TeenTrip
+    let summary: ParentTripSummary
+
+    private var session: TeenTrip {
+        summary.trip
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
+                    Text(summary.teenName)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.green)
                     Text(session.startedAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.headline)
                     Text("Ended \(session.endedAt.formatted(date: .omitted, time: .shortened))")
@@ -153,20 +187,103 @@ private struct ParentTripCard: View {
     }
 }
 
-private struct LastKnownLocationMap: View {
-    let point: RoutePoint
+private struct ActiveTeenDriveCard: View {
+    let drive: ActiveTeenDrive
 
     var body: some View {
-        Map(
-            initialPosition: .region(
-                MKCoordinateRegion(
-                    center: point.coordinate,
-                    span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-                )
+        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(drive.teenName)
+                        .font(.headline)
+                    Spacer()
+                    Text("Updated \(drive.updatedAt.formatted(date: .omitted, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 12) {
+                    ParentMetric(title: "Current", value: String(format: "%.0f mph", drive.speedMPH))
+                    ParentMetric(title: "Top", value: String(format: "%.0f mph", drive.topSpeedMPH))
+                    ParentMetric(title: "Duration", value: durationText(now: timeline.date))
+                }
+
+                ActiveDriveMap(drive: drive)
+                    .frame(height: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                HStack(spacing: 12) {
+                    ParentMetric(title: "Distance", value: String(format: "%.2f mi", drive.distanceMiles))
+                    ParentMetric(title: "Alerts", value: "\(drive.alertCount)")
+                    ParentMetric(title: "Started", value: drive.startedAt.formatted(date: .omitted, time: .shortened))
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func durationText(now: Date) -> String {
+        now.timeIntervalSince(drive.startedAt).durationText
+    }
+}
+
+private struct ActiveDriveMap: View {
+    let drive: ActiveTeenDrive
+
+    private var coordinates: [CLLocationCoordinate2D] {
+        drive.route.map(\.coordinate)
+    }
+
+    private var region: MKCoordinateRegion {
+        let allCoordinates = coordinates + [drive.lastKnownLocation?.coordinate].compactMap { $0 }
+        guard let first = allCoordinates.first else {
+            return MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.0090),
+                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
             )
-        ) {
-            Marker("Last Known", systemImage: "location.fill", coordinate: point.coordinate)
-                .tint(.green)
+        }
+
+        let bounds = allCoordinates.reduce(
+            (minLat: first.latitude, maxLat: first.latitude, minLon: first.longitude, maxLon: first.longitude)
+        ) { bounds, coordinate in
+            (
+                min(bounds.minLat, coordinate.latitude),
+                max(bounds.maxLat, coordinate.latitude),
+                min(bounds.minLon, coordinate.longitude),
+                max(bounds.maxLon, coordinate.longitude)
+            )
+        }
+        let center = CLLocationCoordinate2D(
+            latitude: (bounds.minLat + bounds.maxLat) / 2,
+            longitude: (bounds.minLon + bounds.maxLon) / 2
+        )
+
+        return MKCoordinateRegion(
+            center: center,
+            span: MKCoordinateSpan(
+                latitudeDelta: max((bounds.maxLat - bounds.minLat) * 1.5, 0.01),
+                longitudeDelta: max((bounds.maxLon - bounds.minLon) * 1.5, 0.01)
+            )
+        )
+    }
+
+    var body: some View {
+        Map(initialPosition: .region(region)) {
+            if coordinates.count > 1 {
+                MapPolyline(coordinates: coordinates)
+                    .stroke(.green, lineWidth: 4)
+            }
+
+            if let first = drive.route.first {
+                Marker("Start", systemImage: "play.fill", coordinate: first.coordinate)
+                    .tint(.green)
+            }
+
+            if let point = drive.lastKnownLocation {
+                Marker("Current", systemImage: "location.fill", coordinate: point.coordinate)
+                    .tint(.green)
+            }
         }
         .mapStyle(.standard(elevation: .realistic))
         .allowsHitTesting(false)

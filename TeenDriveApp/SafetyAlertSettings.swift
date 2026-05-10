@@ -20,6 +20,10 @@ final class SafetyAlertSettings: ObservableObject {
         didSet { UserDefaults.standard.set(speedAlertsEnabled, forKey: Keys.speedAlertsEnabled) }
     }
 
+    @Published var roadSpeedLimitsEnabled: Bool {
+        didSet { UserDefaults.standard.set(roadSpeedLimitsEnabled, forKey: Keys.roadSpeedLimitsEnabled) }
+    }
+
     @Published var drivingEventAlertsEnabled: Bool {
         didSet { UserDefaults.standard.set(drivingEventAlertsEnabled, forKey: Keys.drivingEventAlertsEnabled) }
     }
@@ -47,6 +51,7 @@ final class SafetyAlertSettings: ObservableObject {
     init() {
         let defaults = UserDefaults.standard
         speedAlertsEnabled = defaults.object(forKey: Keys.speedAlertsEnabled) as? Bool ?? true
+        roadSpeedLimitsEnabled = defaults.object(forKey: Keys.roadSpeedLimitsEnabled) as? Bool ?? true
         drivingEventAlertsEnabled = defaults.object(forKey: Keys.drivingEventAlertsEnabled) as? Bool ?? true
         tripStartedAlertsEnabled = defaults.object(forKey: Keys.tripStartedAlertsEnabled) as? Bool ?? true
         tripEndedAlertsEnabled = defaults.object(forKey: Keys.tripEndedAlertsEnabled) as? Bool ?? true
@@ -80,6 +85,7 @@ final class SafetyAlertSettings: ObservableObject {
 
 private enum Keys {
     static let speedAlertsEnabled = "safety.speedAlertsEnabled"
+    static let roadSpeedLimitsEnabled = "safety.roadSpeedLimitsEnabled"
     static let drivingEventAlertsEnabled = "safety.drivingEventAlertsEnabled"
     static let tripStartedAlertsEnabled = "safety.tripStartedAlertsEnabled"
     static let tripEndedAlertsEnabled = "safety.tripEndedAlertsEnabled"

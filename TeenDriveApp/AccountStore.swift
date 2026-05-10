@@ -39,6 +39,11 @@ struct ConnectedTeen: Codable, Hashable, Identifiable {
     }
 }
 
+struct ConnectedParent: Codable, Hashable, Identifiable {
+    let id: String
+    var displayName: String
+}
+
 enum AccountCloudSyncState: Equatable {
     case idle
     case syncing
@@ -91,6 +96,14 @@ final class AccountStore: ObservableObject {
         didSet { UserDefaults.standard.set(connectedParentName, forKey: Keys.connectedParentName) }
     }
 
+    @Published private(set) var connectedParentID: String {
+        didSet { UserDefaults.standard.set(connectedParentID, forKey: Keys.connectedParentID) }
+    }
+
+    @Published private(set) var connectedParents: [ConnectedParent] {
+        didSet { saveConnectedParents() }
+    }
+
     @Published private(set) var connectedTeenCode: String {
         didSet { UserDefaults.standard.set(connectedTeenCode, forKey: Keys.connectedTeenCode) }
     }
@@ -123,7 +136,23 @@ final class AccountStore: ObservableObject {
         role = AccountRole(rawValue: roleValue) ?? .teen
         displayName = defaults.string(forKey: Keys.displayName) ?? ""
         pairingCode = defaults.string(forKey: Keys.pairingCode) ?? AccountStore.makePairingCode()
-        connectedParentName = defaults.string(forKey: Keys.connectedParentName) ?? ""
+        let storedParentName = defaults.string(forKey: Keys.connectedParentName) ?? ""
+        let storedParentID = defaults.string(forKey: Keys.connectedParentID) ?? ""
+        connectedParentName = storedParentName
+        connectedParentID = storedParentID
+        if let data = defaults.data(forKey: Keys.connectedParents),
+           let parents = try? JSONDecoder().decode([ConnectedParent].self, from: data) {
+            connectedParents = parents
+        } else if !storedParentID.isEmpty || !storedParentName.isEmpty {
+            connectedParents = [
+                ConnectedParent(
+                    id: storedParentID.isEmpty ? UUID().uuidString : storedParentID,
+                    displayName: storedParentName.isEmpty ? "Parent" : storedParentName
+                )
+            ]
+        } else {
+            connectedParents = []
+        }
         let storedTeenCode = defaults.string(forKey: Keys.connectedTeenCode) ?? ""
         connectedTeenCode = storedTeenCode
         if let data = defaults.data(forKey: Keys.connectedTeens),
@@ -150,7 +179,22 @@ final class AccountStore: ObservableObject {
     }
 
     var isPaired: Bool {
-        !connectedParentName.isEmpty || !connectedTeens.isEmpty
+        hasConnectedParent || !connectedTeens.isEmpty
+    }
+
+    var hasConnectedParent: Bool {
+        !connectedParents.isEmpty || !connectedParentID.isEmpty || !connectedParentName.isEmpty
+    }
+
+    var connectedParentDisplayName: String {
+        guard hasConnectedParent else { return "" }
+        if connectedParents.count > 1 {
+            return "\(connectedParents.count) parents connected"
+        }
+        if let parent = connectedParents.first {
+            return parent.displayName
+        }
+        return connectedParentName.isEmpty ? "Parent" : connectedParentName
     }
 
     var isPairingReady: Bool {
@@ -181,7 +225,6 @@ final class AccountStore: ObservableObject {
 
     func regeneratePairingCode() {
         pairingCode = AccountStore.makePairingCode()
-        connectedParentName = ""
     }
 
     func connectParent(name: String, scannedPayload: String) async -> Bool {
@@ -212,6 +255,8 @@ final class AccountStore: ObservableObject {
 
     func disconnect() {
         connectedParentName = ""
+        connectedParentID = ""
+        connectedParents = []
         connectedTeenCode = ""
         connectedTeens = []
         teenProfileListener?.remove()
@@ -344,6 +389,11 @@ final class AccountStore: ObservableObject {
                 "updatedAt": FieldValue.serverTimestamp()
             ], merge: true)
 
+            try await familyRef.collection("teens").document(pairing.teenProfileID).setData([
+                "connectedParentIDs": FieldValue.arrayUnion([parentProfileID]),
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
+
             firebaseStatus = "Teen connected"
             markCloudSyncSucceeded()
         } catch {
@@ -376,16 +426,41 @@ final class AccountStore: ObservableObject {
     private func refreshConnectedParentName(teenProfileID: String, db: Firestore) async {
         do {
             let teenDocument = try await db.collection("teenProfiles").document(teenProfileID).getDocument()
-            let parentIDs = teenDocument.data()?["connectedParentIDs"] as? [String] ?? []
-            guard let parentID = parentIDs.first, !parentID.isEmpty else {
+            var parentIDs = teenDocument.data()?["connectedParentIDs"] as? [String] ?? []
+            if parentIDs.isEmpty, !familyGroupID.isEmpty {
+                let familyDocument = try await db.collection("familyGroups").document(familyGroupID).getDocument()
+                parentIDs = familyDocument.data()?["parentIDs"] as? [String] ?? []
+            }
+            var seenParentIDs: Set<String> = []
+            parentIDs = parentIDs.filter { parentID in
+                guard !parentID.isEmpty, !seenParentIDs.contains(parentID) else { return false }
+                seenParentIDs.insert(parentID)
+                return true
+            }
+
+            guard !parentIDs.isEmpty else {
                 connectedParentName = ""
+                connectedParentID = ""
+                connectedParents = []
                 return
             }
 
-            let parentDocument = try await db.collection("parentProfiles").document(parentID).getDocument()
-            let parentName = (parentDocument.data()?["displayName"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            connectedParentName = parentName
+            var parents: [ConnectedParent] = []
+            for parentID in parentIDs where !parentID.isEmpty {
+                do {
+                    let parentDocument = try await db.collection("parentProfiles").document(parentID).getDocument()
+                    let parentName = (parentDocument.data()?["displayName"] as? String)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    parents.append(ConnectedParent(id: parentID, displayName: parentName.isEmpty ? "Parent" : parentName))
+                } catch {
+                    parents.append(ConnectedParent(id: parentID, displayName: "Parent"))
+                }
+            }
+            parents.sort { $0.displayName < $1.displayName }
+
+            connectedParents = parents
+            connectedParentID = parents.first?.id ?? ""
+            connectedParentName = parents.first?.displayName ?? ""
         } catch {
             firebaseStatus = "Could not refresh parent status: \((error as NSError).localizedDescription)"
         }
@@ -423,6 +498,11 @@ final class AccountStore: ObservableObject {
         guard let data = try? JSONEncoder().encode(connectedTeens) else { return }
         UserDefaults.standard.set(data, forKey: Keys.connectedTeens)
     }
+
+    private func saveConnectedParents() {
+        guard let data = try? JSONEncoder().encode(connectedParents) else { return }
+        UserDefaults.standard.set(data, forKey: Keys.connectedParents)
+    }
 }
 
 private enum Keys {
@@ -431,6 +511,8 @@ private enum Keys {
     static let displayName = "account.displayName"
     static let pairingCode = "account.pairingCode"
     static let connectedParentName = "account.connectedParentName"
+    static let connectedParentID = "account.connectedParentID"
+    static let connectedParents = "account.connectedParents"
     static let connectedTeenCode = "account.connectedTeenCode"
     static let connectedTeens = "account.connectedTeens"
     static let familyGroupID = "account.familyGroupID"
