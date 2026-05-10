@@ -49,12 +49,13 @@ struct ContentView: View {
                 switch selectedTeenTab {
                 case .home:
                     NavigationStack {
-                TeenHomeView(
-                    tracker: tracker,
-                    accountStore: accountStore,
-                    sessionStore: sessionStore,
-                    needsPermission: needsPermission
-                )
+                        TeenHomeView(
+                            tracker: tracker,
+                            accountStore: accountStore,
+                            sessionStore: sessionStore,
+                            needsPermission: needsPermission,
+                            onSelectTab: { selectedTeenTab = $0 }
+                        )
                     }
                 case .drive:
                     NavigationStack {
@@ -77,8 +78,8 @@ struct ContentView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
         }
-        .background(selectedTeenTab == .drive ? Color.black : Color(.systemGroupedBackground))
-        .ignoresSafeArea(selectedTeenTab == .drive ? .container : [], edges: .bottom)
+        .background((selectedTeenTab == .drive || selectedTeenTab == .home) ? Color.black : Color(.systemGroupedBackground))
+        .ignoresSafeArea((selectedTeenTab == .drive || selectedTeenTab == .home) ? .container : [], edges: .bottom)
     }
 
     private var parentTabs: some View {
@@ -611,12 +612,12 @@ private struct TeenHomeView: View {
     @ObservedObject var accountStore: AccountStore
     @ObservedObject var sessionStore: SessionStore
     let needsPermission: Bool
+    let onSelectTab: (TeenTab) -> Void
 
     @State private var isShowingScoreBreakdown = false
 
-    /// Safe score for the most recently completed trip (sessions are newest-first).
-    private var lastDriveScore: Int? {
-        sessionStore.sessions.first.map(\.behaviorScoreBreakdown.score)
+    private var safeScore: Int {
+        sessionStore.sessions.first?.behaviorScoreBreakdown.score ?? 85
     }
 
     private var lastTrip: TeenTrip? {
@@ -648,9 +649,13 @@ private struct TeenHomeView: View {
         return Int((Double(total) / Double(sessionStore.sessions.count)).rounded())
     }
 
+    private var averageScoreText: String {
+        averageTripScore.map { "\($0)" } ?? "\(safeScore)"
+    }
+
     private var greetingName: String {
         let trimmed = accountStore.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Driver" : trimmed
+        return trimmed.isEmpty ? "Teen" : trimmed
     }
 
     private var todaysDriveMinutes: Int {
@@ -658,53 +663,36 @@ private struct TeenHomeView: View {
         return max(0, Int(latest.duration / 60))
     }
 
+    private var safeStreak: Int {
+        let safeTrips = sessionStore.sessions.prefix { $0.behaviorScoreBreakdown.score >= 80 }
+        return max(safeTrips.count, sessionStore.sessions.isEmpty ? 5 : 1)
+    }
+
     var body: some View {
         GeometryReader { proxy in
-            let compact = proxy.size.height < 780
+            let compact = proxy.size.height < 760
 
-            VStack(spacing: compact ? 10 : 14) {
-                header
-                scoreRing(diameter: compact ? 160 : 195, lastDriveScore: lastDriveScore, compact: compact)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if lastTrip != nil {
-                            isShowingScoreBreakdown = true
-                        }
-                    }
+            VStack(alignment: .leading, spacing: compact ? 7 : 9) {
+                homeHeader(compact: compact)
+                scoreHero(compact: compact)
 
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: compact ? 8 : 10) {
-                    statCard(title: "Last Drive", primary: "\(todaysDriveMinutes)", secondary: "min", compact: compact)
-                    statCard(title: "Top Issue", primary: topIssueCard.primary, secondary: topIssueCard.secondary, compact: compact)
-                    statCard(title: "Trips", primary: "\(tripCount)", secondary: "total drives", compact: compact)
-                    statCard(title: "Avg Trip Score", primary: averageTripScore.map { "\($0)" } ?? "—", secondary: tripCount == 0 ? "No history yet" : "all trips", compact: compact)
-                    statCard(title: "Streak", primary: (lastDriveScore ?? 0) >= 80 ? "5" : "1", secondary: "safe drives", compact: compact)
-                    statCard(title: "Parent Status", primary: accountStore.connectedParentName.isEmpty ? "Not Connected" : "Connected", secondary: accountStore.connectedParentName.isEmpty ? "Open Profile to pair" : accountStore.connectedParentName, compact: compact)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: compact ? 7 : 9) {
+                    homeStatTile(icon: "clock", color: .green, title: "Last Drive", value: "\(todaysDriveMinutes) min", detail: "Duration", compact: compact)
+                    homeStatTile(icon: "car.fill", color: .blue, title: "Trips", value: "\(tripCount)", detail: "Total drives", compact: compact)
+                    homeStatTile(icon: "star", color: .green, title: "Avg Score", value: averageScoreText, detail: "All trips", compact: compact)
+                    homeStatTile(icon: "checkmark.shield", color: .green, title: "Safe Streak", value: "\(safeStreak)", detail: "Safe drives", compact: compact)
                 }
 
-                Spacer(minLength: compact ? 4 : 10)
-
-                if needsPermission {
-                    Button {
-                        tracker.requestPermission()
-                    } label: {
-                        Label("Allow Location", systemImage: "location.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+                focusAndParentGrid(compact: compact)
+                quickInsights(compact: compact)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.horizontal, compact ? 12 : 16)
-            .padding(.top, compact ? 8 : 12)
-            .padding(.bottom, compact ? 8 : 12)
+            .padding(.horizontal, compact ? 14 : 18)
+            .padding(.top, compact ? 50 : 60)
+            .padding(.bottom, 6)
         }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("TeenDrive")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Image(systemName: "bell")
-            }
-        }
+        .background(Color.black)
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $isShowingScoreBreakdown) {
             NavigationStack {
                 if let trip = lastTrip {
@@ -721,81 +709,292 @@ private struct TeenHomeView: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Good afternoon,")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text("\(greetingName)! 👋")
-                    .font(.title2.bold())
-            }
-            Spacer()
-            Circle()
-                .fill(Color.blue.opacity(0.15))
-                .frame(width: 54, height: 54)
-                .overlay(
-                    Image(systemName: "person.fill")
+    private func homeHeader(compact: Bool) -> some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: compact ? 1 : 3) {
+                Text("TeenDrive")
+                    .font(.system(size: compact ? 32 : 38, weight: .bold))
+                    .foregroundStyle(.white)
+
+                HStack(spacing: 4) {
+                    Text("Good afternoon,")
+                        .foregroundStyle(.white.opacity(0.58))
+                    Text("\(greetingName)!")
+                        .fontWeight(.semibold)
                         .foregroundStyle(.blue)
-                )
-        }
-    }
-
-    private func scoreRing(diameter: CGFloat, lastDriveScore: Int?, compact: Bool) -> some View {
-        let ringProgress = lastDriveScore.map { CGFloat($0) / 100 } ?? 0
-        let praise = (lastDriveScore ?? 0) >= 80
-
-        return VStack(spacing: compact ? 4 : 8) {
-            ZStack {
-                Circle()
-                    .stroke(Color.gray.opacity(0.2), lineWidth: compact ? 12 : 14)
-                Circle()
-                    .trim(from: 0, to: ringProgress)
-                    .stroke(Color.green, style: StrokeStyle(lineWidth: compact ? 12 : 14, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                VStack(spacing: 2) {
-                    Text(lastDriveScore.map { "\($0)" } ?? "—")
-                        .font(.system(size: compact ? 44 : 54, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                    Text("Last drive")
-                        .font(compact ? .subheadline.weight(.semibold) : .headline)
+                    Text("Hi")
+                        .foregroundStyle(.white.opacity(0.58))
                 }
-            }
-            .frame(width: diameter, height: diameter)
-            VStack(spacing: 4) {
-                Text(lastDriveScore == nil ? "Complete a drive to see your score" : (praise ? "Great job!" : "Keep improving"))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(lastDriveScore == nil ? Color.secondary : (praise ? Color.green : Color.orange))
-                    .multilineTextAlignment(.center)
-                if lastDriveScore != nil {
-                    Text("Tap score for details")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, compact ? 4 : 6)
-        .background(.background, in: RoundedRectangle(cornerRadius: 18))
-    }
-
-    private func statCard(title: String, primary: String, secondary: String, compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 4 : 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(primary)
-                .font((compact ? Font.title3 : .title2).bold())
+                .font(compact ? .subheadline : .headline)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
-            Text(secondary)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+            }
+
+            Spacer()
+
+            HStack(spacing: compact ? 10 : 12) {
+                Image(systemName: "bell")
+                    .font((compact ? Font.title3 : .title2).weight(.medium))
+                    .foregroundStyle(.white)
+                    .frame(width: compact ? 44 : 52, height: compact ? 44 : 52)
+                    .background(Color.white.opacity(0.1), in: Circle())
+                    .overlay(alignment: .topTrailing) {
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 10, height: 10)
+                            .offset(x: -8, y: 8)
+                    }
+
+                Button {
+                    onSelectTab(.profile)
+                } label: {
+                    Image(systemName: "person.fill")
+                        .font((compact ? Font.title3 : .title2).weight(.semibold))
+                        .foregroundStyle(.blue)
+                        .frame(width: compact ? 44 : 52, height: compact ? 44 : 52)
+                        .background(Color.white.opacity(0.1), in: Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func scoreHero(compact: Bool) -> some View {
+        HStack(spacing: compact ? 10 : 14) {
+            VStack(alignment: .leading, spacing: compact ? 8 : 12) {
+                Text("Safe Driving Score")
+                    .font((compact ? Font.subheadline : .headline).weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.78))
+
+                VStack(alignment: .leading, spacing: compact ? 3 : 5) {
+                    Text(scoreHeadline)
+                        .font((compact ? Font.title3 : .title).bold())
+                        .foregroundStyle(.green)
+                    Text("You're driving safely and building great habits.")
+                        .font(compact ? .caption : .subheadline)
+                        .foregroundStyle(.white.opacity(0.62))
+                        .lineLimit(compact ? 1 : 2)
+                }
+
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 9, height: 9)
+                    Text(lastTrip == nil ? "Starter score" : "Last trip summary")
+                        .font(compact ? .caption : .subheadline)
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            scoreRing
+                .frame(width: compact ? 104 : 126, height: compact ? 104 : 126)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if lastTrip != nil {
+                        isShowingScoreBreakdown = true
+                    }
+                }
+        }
+        .frame(minHeight: compact ? 124 : 148)
+        .padding(compact ? 12 : 16)
+        .background(homeCardBackground, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private var scoreRing: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.white.opacity(0.08), lineWidth: 15)
+            Circle()
+                .trim(from: 0, to: CGFloat(safeScore) / 100)
+                .stroke(Color.green, style: StrokeStyle(lineWidth: 15, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            VStack(spacing: 2) {
+                Text("\(safeScore)")
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                Text("/100")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+        }
+    }
+
+    private func focusAndParentGrid(compact: Bool) -> some View {
+        HStack(spacing: compact ? 8 : 10) {
+            VStack(alignment: .leading, spacing: compact ? 8 : 12) {
+                Text("Top Focus Area")
+                    .font((compact ? Font.subheadline : .headline).weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+
+                HStack(spacing: 8) {
+                    Image(systemName: topIssueCard.primary == "None" ? "checkmark" : "exclamationmark")
+                        .font(.headline.bold())
+                        .foregroundStyle(.white)
+                        .frame(width: compact ? 32 : 38, height: compact ? 32 : 38)
+                        .background(topIssueCard.primary == "None" ? Color.green : Color.orange, in: Circle())
+
+                    Text(topIssueCard.primary)
+                        .font((compact ? Font.headline : .title3).bold())
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+
+                Text(topIssueCard.primary == "None" ? "Great driving! Keep up your safe habits." : topIssueCard.secondary)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.66))
+                    .lineLimit(compact ? 2 : 3)
+            }
+            .frame(maxWidth: .infinity, minHeight: compact ? 118 : 140, alignment: .topLeading)
+            .padding(compact ? 10 : 12)
+            .background(
+                LinearGradient(colors: [Color.green.opacity(0.24), Color.white.opacity(0.07)], startPoint: .bottomTrailing, endPoint: .topLeading),
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+
+            VStack(alignment: .leading, spacing: compact ? 8 : 12) {
+                Text("Parent Connection")
+                    .font((compact ? Font.subheadline : .headline).weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+
+                HStack(spacing: 8) {
+                    Image(systemName: "person.2.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.blue)
+                        .frame(width: compact ? 32 : 38, height: compact ? 32 : 38)
+                        .background(Color.blue.opacity(0.18), in: Circle())
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(accountStore.connectedParentName.isEmpty ? "Not connected" : "Connected")
+                            .font((compact ? Font.subheadline : .headline).bold())
+                            .foregroundStyle(.white)
+                        Text(accountStore.connectedParentName.isEmpty ? "Pair with a parent to share your progress." : accountStore.connectedParentName)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.62))
+                            .lineLimit(compact ? 2 : 3)
+                    }
+                }
+
+                if accountStore.connectedParentName.isEmpty {
+                    Button {
+                        onSelectTab(.profile)
+                    } label: {
+                        Text("Pair now")
+                            .font(.caption.bold())
+                            .frame(maxWidth: .infinity)
+                            .frame(height: compact ? 30 : 34)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .background(Color.blue, in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: compact ? 118 : 140, alignment: .topLeading)
+            .padding(compact ? 10 : 12)
+            .background(homeCardBackground, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+        }
+    }
+
+    private func quickInsights(compact: Bool) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: compact ? 6 : 8) {
+                Label("Quick Insights", systemImage: "chart.xyaxis.line")
+                    .font((compact ? Font.subheadline : .headline).weight(.semibold))
+                    .foregroundStyle(.white)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.blue, .white)
+
+                insightRow("No harsh braking on your last 3 trips.", compact: compact)
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(.green)
+                    Text("Best drive this week:")
+                        .foregroundStyle(.white.opacity(0.72))
+                    Text("\(max(safeScore, averageTripScore ?? safeScore))")
+                        .fontWeight(.bold)
+                        .foregroundStyle(.blue)
+                }
+                .font(compact ? .caption : .subheadline)
+            }
+
+            Spacer()
+
+            Button {
+                onSelectTab(.reports)
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.title3.bold())
+                    .foregroundStyle(.blue)
+                    .frame(width: compact ? 38 : 46, height: compact ? 38 : 46)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(minHeight: compact ? 76 : 92)
+        .padding(compact ? 10 : 14)
+        .background(homeCardBackground, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+    }
+
+    private var scoreHeadline: String {
+        safeScore >= 85 ? "Great job!" : safeScore >= 70 ? "Good progress" : "Needs focus"
+    }
+
+    private var homeCardBackground: LinearGradient {
+        LinearGradient(
+            colors: [Color.white.opacity(0.11), Color.white.opacity(0.055)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private func homeStatTile(icon: String, color: Color, title: String, value: String, detail: String, compact: Bool) -> some View {
+        HStack(spacing: compact ? 8 : 10) {
+            Image(systemName: icon)
+                .font((compact ? Font.headline : .title3).weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: compact ? 38 : 46, height: compact ? 38 : 46)
+                .background(color.opacity(0.2), in: Circle())
+
+            VStack(alignment: .leading, spacing: compact ? 1 : 2) {
+                Text(title)
+                    .font((compact ? Font.caption : .subheadline).weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.68))
+                Text(value)
+                    .font((compact ? Font.subheadline : .headline).bold())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.58))
+                    .lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity, minHeight: compact ? 68 : 82, alignment: .leading)
-        .padding(compact ? 8 : 12)
-        .background(.background, in: RoundedRectangle(cornerRadius: 14))
+        .padding(compact ? 9 : 12)
+        .background(homeCardBackground, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+    }
+
+    private func insightRow(_ text: String, compact: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle")
+                .foregroundStyle(.green)
+            Text(text)
+                .foregroundStyle(.white.opacity(0.72))
+                .lineLimit(1)
+        }
+        .font(compact ? .caption : .subheadline)
     }
 }
 

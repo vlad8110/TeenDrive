@@ -19,7 +19,7 @@ struct AccountSettingsView: View {
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
+            VStack(spacing: 10) {
                 headerCard
                 syncCard
                 profileCard
@@ -34,8 +34,8 @@ struct AccountSettingsView: View {
                     disconnectCard
                 }
             }
-            .padding(16)
-            .padding(.bottom, 24)
+            .padding(12)
+            .padding(.bottom, 12)
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Profile")
@@ -68,7 +68,7 @@ struct AccountSettingsView: View {
     }
 
     private var headerCard: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 8) {
             ZStack {
                 Circle()
                     .fill(
@@ -78,31 +78,31 @@ struct AccountSettingsView: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(width: 86, height: 86)
+                    .frame(width: 62, height: 62)
 
                 Text(initials)
-                    .font(.title.bold())
+                    .font(.title3.bold())
                     .foregroundStyle(.white)
             }
 
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 Text(displayName)
-                    .font(.title2.bold())
+                    .font(.headline.bold())
                 Label(accountStore.role == .teen ? "Teen account" : "Parent account", systemImage: accountStore.role == .teen ? "car.fill" : "person.2.fill")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(22)
+        .padding(12)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var syncCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Label("Cloud Sync", systemImage: syncIcon)
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(syncColor)
                 Spacer()
                 Text(accountStore.cloudSyncState.title)
@@ -121,37 +121,38 @@ struct AccountSettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(16)
+        .padding(12)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var profileCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Label("Account Details", systemImage: "person.text.rectangle")
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
 
             TextField(accountStore.role == .teen ? "Teen name" : "Parent name", text: $accountStore.displayName)
                 .textContentType(.name)
                 .textFieldStyle(.roundedBorder)
         }
-        .padding(16)
+        .padding(12)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var teenPairingCard: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 8) {
             HStack {
                 Label("Pair With Parent", systemImage: "qrcode")
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
                 pairingBadge
             }
 
             if accountStore.isPairingReady {
                 PairingQRCodeView(payload: accountStore.pairingPayload)
+                    .frame(width: 142, height: 142)
             } else {
                 ProgressView()
-                    .frame(width: 220, height: 220)
+                    .frame(width: 142, height: 142)
             }
 
             Text(accountStore.isPairingReady ? "Have a parent scan this QR code from their app." : "Preparing your cloud pairing QR.")
@@ -177,8 +178,9 @@ struct AccountSettingsView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
+            .controlSize(.small)
         }
-        .padding(16)
+        .padding(12)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 
