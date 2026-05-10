@@ -43,6 +43,8 @@ service cloud.firestore {
           allow read: if ownsTeen(teenID) ||
             request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
           allow write: if ownsTeen(teenID);
+          allow delete: if ownsTeen(teenID) ||
+            request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
         }
 
         match /activeDrive/{driveID} {

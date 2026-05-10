@@ -22,6 +22,8 @@ struct ParentTripSummary: Identifiable, Hashable {
 
 @MainActor
 final class SessionStore: ObservableObject {
+    private static let deletedSessionIDsKey = "teenDrive.deletedSessionIDs"
+
     @Published private(set) var sessions: [TeenTrip] = []
     @Published private(set) var parentTripSummaries: [ParentTripSummary] = []
     @Published private(set) var activeTeenDrives: [ActiveTeenDrive] = []
@@ -32,6 +34,7 @@ final class SessionStore: ObservableObject {
     private var remoteSessionsBySource: [String: [TeenTrip]] = [:]
     private var remoteTeenInfoBySource: [String: ConnectedTeen] = [:]
     private var activeDrivesBySource: [String: ActiveTeenDrive] = [:]
+    private var deletedSessionIDs: Set<UUID> = []
     private var listeners: [ListenerRegistration] = []
 
     /*
@@ -41,6 +44,7 @@ final class SessionStore: ObservableObject {
     init(fileURL: URL? = nil) {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         self.fileURL = fileURL ?? documentsURL.appendingPathComponent("teen-drive-trips.json")
+        deletedSessionIDs = Self.loadDeletedSessionIDs()
         Task {
             await load()
         }
@@ -82,12 +86,23 @@ final class SessionStore: ObservableObject {
 
     /*
      Purpose:
-     Removes selected local trips from saved history.
+     Removes selected trips from local history and deletes matching Firestore trip documents.
     */
     func delete(at offsets: IndexSet) {
-        localSessions.remove(atOffsets: offsets)
+        let sessionsToDelete = offsets.compactMap { sessions.indices.contains($0) ? sessions[$0] : nil }
+        let idsToDelete = Set(sessionsToDelete.map(\.id))
+        deletedSessionIDs.formUnion(idsToDelete)
+        saveDeletedSessionIDs()
+        localSessions.removeAll { idsToDelete.contains($0.id) }
+        remoteSessionsBySource = remoteSessionsBySource.mapValues { sessions in
+            sessions.filter { !idsToDelete.contains($0.id) }
+        }
         mergeSessions()
         save()
+
+        Task {
+            await deleteRemoteTrips(sessionsToDelete)
+        }
     }
 
     /*
@@ -212,6 +227,7 @@ final class SessionStore: ObservableObject {
      Uploads one completed teen trip document when cloud account IDs are available.
     */
     private func syncTrip(_ session: TeenTrip) async {
+        guard !deletedSessionIDs.contains(session.id) else { return }
         guard let accountStore,
               accountStore.role == .teen,
               let db = FirebaseBackend.shared.database,
@@ -234,6 +250,60 @@ final class SessionStore: ObservableObject {
                 )
         } catch {
             FirebaseBackend.shared.statusMessage = "Could not sync trip"
+        }
+    }
+
+    /*
+     Purpose:
+     Deletes synced trip documents so a removed report does not reappear from Firestore listeners.
+    */
+    private func deleteRemoteTrips(_ sessions: [TeenTrip]) async {
+        guard let accountStore,
+              let db = FirebaseBackend.shared.database else { return }
+
+        if accountStore.role == .teen,
+           !accountStore.familyGroupID.isEmpty,
+           !accountStore.teenProfileID.isEmpty {
+            for session in sessions {
+                await deleteRemoteTrip(
+                    sessionID: session.id,
+                    familyGroupID: accountStore.familyGroupID,
+                    teenProfileID: accountStore.teenProfileID,
+                    db: db
+                )
+            }
+            return
+        }
+
+        if accountStore.role == .parent {
+            for session in sessions {
+                let summary = parentTripSummaries.first { $0.trip.id == session.id }
+                guard let summary, !summary.familyGroupID.isEmpty else { continue }
+                await deleteRemoteTrip(
+                    sessionID: session.id,
+                    familyGroupID: summary.familyGroupID,
+                    teenProfileID: summary.teenProfileID,
+                    db: db
+                )
+            }
+        }
+    }
+
+    /*
+     Purpose:
+     Deletes one trip document from the teen's Firestore trip collection.
+    */
+    private func deleteRemoteTrip(sessionID: UUID, familyGroupID: String, teenProfileID: String, db: Firestore) async {
+        do {
+            try await db.collection("familyGroups")
+                .document(familyGroupID)
+                .collection("teens")
+                .document(teenProfileID)
+                .collection("trips")
+                .document(sessionID.uuidString)
+                .delete()
+        } catch {
+            FirebaseBackend.shared.statusMessage = "Could not delete synced trip"
         }
     }
 
@@ -264,6 +334,24 @@ final class SessionStore: ObservableObject {
 
     /*
      Purpose:
+     Reads the persistent list of deleted report IDs so synced reports stay hidden after restart.
+    */
+    private static func loadDeletedSessionIDs() -> Set<UUID> {
+        let idStrings = UserDefaults.standard.stringArray(forKey: deletedSessionIDsKey) ?? []
+        return Set(idStrings.compactMap(UUID.init(uuidString:)))
+    }
+
+    /*
+     Purpose:
+     Saves deleted report IDs as tombstones that stop old cloud snapshots from restoring deleted reports.
+    */
+    private func saveDeletedSessionIDs() {
+        let idStrings = deletedSessionIDs.map(\.uuidString).sorted()
+        UserDefaults.standard.set(idStrings, forKey: Self.deletedSessionIDsKey)
+    }
+
+    /*
+     Purpose:
      Writes local trip history to disk on a background task.
     */
     private func save() {
@@ -280,12 +368,16 @@ final class SessionStore: ObservableObject {
      Combines local and remote trips into the arrays shown to teens and parents.
     */
     private func mergeSessions() {
-        let remoteSessions = remoteSessionsBySource.values.flatMap { $0 }
-        let merged = (remoteSessions + localSessions).reduce(into: [UUID: TeenTrip]()) { result, session in
+        let visibleRemoteSessionsBySource = remoteSessionsBySource.mapValues { sessions in
+            sessions.filter { !deletedSessionIDs.contains($0.id) }
+        }
+        let remoteSessions = visibleRemoteSessionsBySource.values.flatMap { $0 }
+        let visibleLocalSessions = localSessions.filter { !deletedSessionIDs.contains($0.id) }
+        let merged = (remoteSessions + visibleLocalSessions).reduce(into: [UUID: TeenTrip]()) { result, session in
             result[session.id] = session
         }
         sessions = merged.values.sorted { $0.startedAt > $1.startedAt }
-        parentTripSummaries = remoteSessionsBySource.flatMap { sourceID, sessions in
+        parentTripSummaries = visibleRemoteSessionsBySource.flatMap { sourceID, sessions in
             sessions.map { session in
                 let teen = remoteTeenInfoBySource[sourceID]
                 return ParentTripSummary(
