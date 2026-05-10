@@ -7,9 +7,13 @@ import Foundation
 final class TeenDriveTracker: NSObject, ObservableObject {
     private let autoStartThresholdMetersPerSecond = 5 / 2.2369362921
     private let autoStopIdleInterval: TimeInterval = 5 * 60
-    private let rapidAccelerationThreshold: Double = 2.7
-    private let harshStopThreshold: Double = -3.5
+    private let rapidAccelerationThreshold: Double = 3.0
+    private let harshStopThreshold: Double = -3.8
+    private let harshCorneringThreshold: Double = 3.7
     private let drivingEventCooldown: TimeInterval = 30
+    private let phoneUseAlertCooldown: TimeInterval = 5 * 60
+    private let speedAlertGraceMPH: Double = 3
+    private let speedAlertSustainedInterval: TimeInterval = 3
     private let placeArrivalRadiusMeters: Double = 150
 
     @Published private(set) var speedMetersPerSecond: Double = 0
@@ -19,6 +23,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     @Published private(set) var activeTripStartedAt: Date?
     @Published private(set) var lastKnownLocation: RoutePoint?
     @Published private(set) var currentRoute: [RoutePoint] = []
+    @Published private(set) var currentSafetyAlerts: [SafetyAlert] = []
     @Published private(set) var roadSpeedLimitMPH: Double?
     @Published private(set) var roadSpeedLimitRoadName: String?
     @Published private(set) var roadSpeedLimitStatus = "Using fallback alert limit"
@@ -41,7 +46,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     private var speedAlerts: [SpeedAlert] = []
     private var safetyAlerts: [SafetyAlert] = []
     private var isOverSpeedAlertThreshold = false
+    private var overSpeedStartedAt: Date?
     private var lastDrivingEventAt: Date?
+    private var didRecordNightDriving = false
+    private var lastPhoneUseAlertAt: Date?
     private var visitedPlaceIDs: Set<UUID> = []
     private var lastActiveDriveSyncAt: Date?
     private var liveActivity: Activity<TeenDriveActivityAttributes>?
@@ -155,6 +163,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         currentTripAlertCount = 0
         lastKnownLocation = nil
         currentRoute = []
+        currentSafetyAlerts = []
         roadSpeedLimitMPH = nil
         roadSpeedLimitRoadName = nil
         roadSpeedLimitStatus = "Finding road speed limit"
@@ -164,7 +173,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         speedAlerts = []
         safetyAlerts = []
         isOverSpeedAlertThreshold = false
+        overSpeedStartedAt = nil
         lastDrivingEventAt = nil
+        didRecordNightDriving = false
+        lastPhoneUseAlertAt = nil
         visitedPlaceIDs = []
         startedAt = Date()
         activeTripStartedAt = startedAt
@@ -219,6 +231,8 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         updateIdleState(speedMetersPerSecond: measuredSpeed)
         updateSpeedAlertState(for: location, speedMetersPerSecond: measuredSpeed)
         updateDrivingEventState(for: location, speedMetersPerSecond: measuredSpeed)
+        updateCorneringEventState(for: location, speedMetersPerSecond: measuredSpeed)
+        updateNightDrivingState(for: location)
         updatePlaceArrivalState(for: location)
 
         if !isTracking {
@@ -244,6 +258,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     private func updateSpeedAlertState(for location: CLLocation, speedMetersPerSecond: Double) {
         guard safetySettings.speedAlertsEnabled else {
             isOverSpeedAlertThreshold = false
+            overSpeedStartedAt = nil
             return
         }
 
@@ -252,7 +267,11 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
 
         let speedLimitMPH = activeSpeedLimitMPH
-        if speedMetersPerSecond >= speedLimitMPH / 2.2369362921 {
+        let speedMPH = speedMetersPerSecond * 2.2369362921
+        if speedMPH >= speedLimitMPH + speedAlertGraceMPH {
+            let thresholdStartedAt = overSpeedStartedAt ?? location.timestamp
+            overSpeedStartedAt = thresholdStartedAt
+            guard location.timestamp.timeIntervalSince(thresholdStartedAt) >= speedAlertSustainedInterval else { return }
             guard !isOverSpeedAlertThreshold else { return }
             isOverSpeedAlertThreshold = true
 
@@ -271,9 +290,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
                 longitude: location.coordinate.longitude,
                 note: String(format: "Over %.0f mph limit", speedLimitMPH)
             )
-            statusMessage = String(format: "Speed alert: %.0f mph", alert.speedMPH)
+            statusMessage = String(format: "Speed alert: %.0f mph in %.0f", alert.speedMPH, speedLimitMPH)
         } else {
             isOverSpeedAlertThreshold = false
+            overSpeedStartedAt = nil
         }
     }
 
@@ -317,6 +337,72 @@ final class TeenDriveTracker: NSObject, ObservableObject {
             note: String(format: "%.1f m/s²", acceleration)
         )
         statusMessage = kind.title
+    }
+
+    private func updateCorneringEventState(for location: CLLocation, speedMetersPerSecond: Double) {
+        guard safetySettings.drivingEventAlertsEnabled else { return }
+        guard let previousLocation,
+              previousLocation.course >= 0,
+              location.course >= 0,
+              speedMetersPerSecond >= 20 / 2.2369362921 else {
+            return
+        }
+
+        let elapsed = location.timestamp.timeIntervalSince(previousLocation.timestamp)
+        guard elapsed >= 1, elapsed <= 10 else { return }
+        if let lastDrivingEventAt, location.timestamp.timeIntervalSince(lastDrivingEventAt) < drivingEventCooldown {
+            return
+        }
+
+        let headingDelta = Self.smallestAngleDeltaDegrees(from: previousLocation.course, to: location.course)
+        let lateralAcceleration = speedMetersPerSecond * abs(headingDelta * .pi / 180) / elapsed
+        guard lateralAcceleration >= harshCorneringThreshold else { return }
+
+        lastDrivingEventAt = location.timestamp
+        recordSafetyAlert(
+            kind: .harshCornering,
+            timestamp: location.timestamp,
+            speedMetersPerSecond: speedMetersPerSecond,
+            latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude,
+            note: String(format: "%.2fg turn", lateralAcceleration / 9.80665)
+        )
+        statusMessage = "Harsh cornering"
+    }
+
+    private func updateNightDrivingState(for location: CLLocation) {
+        guard safetySettings.nightDrivingAlertsEnabled, !didRecordNightDriving else { return }
+        guard Self.isNightDrivingTime(location.timestamp) else { return }
+
+        didRecordNightDriving = true
+        recordSafetyAlert(
+            kind: .nightDriving,
+            timestamp: location.timestamp,
+            speedMetersPerSecond: speedMetersPerSecond,
+            latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude,
+            note: "Driving between 10 PM and 5 AM"
+        )
+        statusMessage = "Night driving"
+    }
+
+    func recordPhoneUseIfDriving(reason: String = "App opened while moving") {
+        guard safetySettings.phoneUseAlertsEnabled, isTracking else { return }
+        guard Date().timeIntervalSince(startedAt) >= 30, speedMPH >= 10 else { return }
+        if let lastPhoneUseAlertAt, Date().timeIntervalSince(lastPhoneUseAlertAt) < phoneUseAlertCooldown {
+            return
+        }
+
+        let now = Date()
+        lastPhoneUseAlertAt = now
+        recordSafetyAlert(
+            kind: .phoneUse,
+            timestamp: now,
+            speedMetersPerSecond: speedMetersPerSecond,
+            point: lastKnownLocation,
+            note: reason
+        )
+        statusMessage = "Phone use while moving"
     }
 
     private func updatePlaceArrivalState(for location: CLLocation) {
@@ -455,7 +541,9 @@ final class TeenDriveTracker: NSObject, ObservableObject {
             note: note
         )
         safetyAlerts.append(alert)
-        currentTripAlertCount = safetyAlerts.count
+        let displayAlerts = safetyAlerts.filter { $0.kind.countsAsSafetyAlert }
+        currentSafetyAlerts = displayAlerts
+        currentTripAlertCount = displayAlerts.count
         syncActiveDrive(force: true)
         Task {
             await TeenDriveNotifications.shared.record(alert: alert, accountStore: accountStore)
@@ -481,6 +569,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
 
         let displayName = accountStore.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let routeSnapshot = Array(route.suffix(160))
+        let alertSnapshot = Array(safetyAlerts.filter { $0.kind.countsAsSafetyAlert }.suffix(60))
         var data: [String: Any] = [
             "isActive": true,
             "teenID": accountStore.teenProfileID,
@@ -492,6 +581,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
             "topSpeedMetersPerSecond": topSpeedMetersPerSecond,
             "distanceMeters": distanceMeters,
             "alertCount": currentTripAlertCount,
+            "safetyAlerts": alertSnapshot.map(\.firestoreData),
             "route": routeSnapshot.map(\.firestoreData)
         ]
         if let lastKnownLocation {
@@ -560,6 +650,23 @@ final class TeenDriveTracker: NSObject, ObservableObject {
             return
         }
 
+        let existingActivities = Activity<TeenDriveActivityAttributes>.activities
+        if let existingActivity = existingActivities.first {
+            liveActivity = existingActivity
+            updateLiveActivity()
+
+            let duplicateActivities = existingActivities.dropFirst()
+            guard !duplicateActivities.isEmpty else { return }
+
+            let content = ActivityContent(state: activityState(), staleDate: nil)
+            Task {
+                for activity in duplicateActivities {
+                    await activity.end(content, dismissalPolicy: .immediate)
+                }
+            }
+            return
+        }
+
         let attributes = TeenDriveActivityAttributes(activityName: "Teen Drive")
         let content = ActivityContent(state: activityState(), staleDate: Date().addingTimeInterval(60))
 
@@ -580,13 +687,44 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     }
 
     private func endLiveActivity() {
-        guard let liveActivity else { return }
+        guard let liveActivity else {
+            let activities = Activity<TeenDriveActivityAttributes>.activities
+            guard !activities.isEmpty else { return }
+
+            let content = ActivityContent(state: activityState(), staleDate: nil)
+            Task {
+                for activity in activities {
+                    await activity.end(content, dismissalPolicy: .default)
+                }
+            }
+            return
+        }
+
         self.liveActivity = nil
         let content = ActivityContent(state: activityState(), staleDate: nil)
 
         Task {
             await liveActivity.end(content, dismissalPolicy: .default)
+            for activity in Activity<TeenDriveActivityAttributes>.activities where activity.id != liveActivity.id {
+                await activity.end(content, dismissalPolicy: .default)
+            }
         }
+    }
+
+    private static func smallestAngleDeltaDegrees(from start: CLLocationDirection, to end: CLLocationDirection) -> Double {
+        let delta = (end - start).truncatingRemainder(dividingBy: 360)
+        if delta > 180 {
+            return delta - 360
+        }
+        if delta < -180 {
+            return delta + 360
+        }
+        return delta
+    }
+
+    private static func isNightDrivingTime(_ date: Date) -> Bool {
+        let hour = Calendar.current.component(.hour, from: date)
+        return hour >= 22 || hour < 5
     }
 }
 

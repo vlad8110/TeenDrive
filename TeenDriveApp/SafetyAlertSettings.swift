@@ -28,6 +28,14 @@ final class SafetyAlertSettings: ObservableObject {
         didSet { UserDefaults.standard.set(drivingEventAlertsEnabled, forKey: Keys.drivingEventAlertsEnabled) }
     }
 
+    @Published var nightDrivingAlertsEnabled: Bool {
+        didSet { UserDefaults.standard.set(nightDrivingAlertsEnabled, forKey: Keys.nightDrivingAlertsEnabled) }
+    }
+
+    @Published var phoneUseAlertsEnabled: Bool {
+        didSet { UserDefaults.standard.set(phoneUseAlertsEnabled, forKey: Keys.phoneUseAlertsEnabled) }
+    }
+
     @Published var tripStartedAlertsEnabled: Bool {
         didSet { UserDefaults.standard.set(tripStartedAlertsEnabled, forKey: Keys.tripStartedAlertsEnabled) }
     }
@@ -53,10 +61,12 @@ final class SafetyAlertSettings: ObservableObject {
         speedAlertsEnabled = defaults.object(forKey: Keys.speedAlertsEnabled) as? Bool ?? true
         roadSpeedLimitsEnabled = defaults.object(forKey: Keys.roadSpeedLimitsEnabled) as? Bool ?? true
         drivingEventAlertsEnabled = defaults.object(forKey: Keys.drivingEventAlertsEnabled) as? Bool ?? true
+        nightDrivingAlertsEnabled = defaults.object(forKey: Keys.nightDrivingAlertsEnabled) as? Bool ?? true
+        phoneUseAlertsEnabled = defaults.object(forKey: Keys.phoneUseAlertsEnabled) as? Bool ?? true
         tripStartedAlertsEnabled = defaults.object(forKey: Keys.tripStartedAlertsEnabled) as? Bool ?? true
         tripEndedAlertsEnabled = defaults.object(forKey: Keys.tripEndedAlertsEnabled) as? Bool ?? true
         placeArrivalAlertsEnabled = defaults.object(forKey: Keys.placeArrivalAlertsEnabled) as? Bool ?? true
-        speedLimitMPH = defaults.object(forKey: Keys.speedLimitMPH) as? Double ?? 75
+        speedLimitMPH = defaults.object(forKey: Keys.speedLimitMPH) as? Double ?? 45
 
         if let data = defaults.data(forKey: Keys.savedPlaces),
            let places = try? JSONDecoder().decode([SavedPlace].self, from: data) {
@@ -87,6 +97,8 @@ private enum Keys {
     static let speedAlertsEnabled = "safety.speedAlertsEnabled"
     static let roadSpeedLimitsEnabled = "safety.roadSpeedLimitsEnabled"
     static let drivingEventAlertsEnabled = "safety.drivingEventAlertsEnabled"
+    static let nightDrivingAlertsEnabled = "safety.nightDrivingAlertsEnabled"
+    static let phoneUseAlertsEnabled = "safety.phoneUseAlertsEnabled"
     static let tripStartedAlertsEnabled = "safety.tripStartedAlertsEnabled"
     static let tripEndedAlertsEnabled = "safety.tripEndedAlertsEnabled"
     static let placeArrivalAlertsEnabled = "safety.placeArrivalAlertsEnabled"

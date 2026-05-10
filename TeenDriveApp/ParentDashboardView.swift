@@ -236,7 +236,9 @@ private struct ActiveDriveMap: View {
     }
 
     private var region: MKCoordinateRegion {
-        let allCoordinates = coordinates + [drive.lastKnownLocation?.coordinate].compactMap { $0 }
+        let allCoordinates = coordinates
+            + [drive.lastKnownLocation?.coordinate].compactMap { $0 }
+            + drive.safetyAlerts.compactMap(\.coordinate)
         guard let first = allCoordinates.first else {
             return MKCoordinateRegion(
                 center: CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.0090),
@@ -278,6 +280,13 @@ private struct ActiveDriveMap: View {
             if let first = drive.route.first {
                 Marker("Start", systemImage: "play.fill", coordinate: first.coordinate)
                     .tint(.green)
+            }
+
+            ForEach(drive.safetyAlerts) { alert in
+                if let coordinate = alert.coordinate {
+                    Marker(alert.kind.title, systemImage: alert.kind.systemImage, coordinate: coordinate)
+                        .tint(.orange)
+                }
             }
 
             if let point = drive.lastKnownLocation {

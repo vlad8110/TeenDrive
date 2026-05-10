@@ -8,49 +8,18 @@ struct TeenDriveLiveActivity: Widget {
             LockScreenSpeedView(state: context.state)
                 .activityBackgroundTint(.black)
                 .activitySystemActionForegroundColor(.white)
-        } dynamicIsland: { context in
+        } dynamicIsland: { _ in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading) {
-                        Text("Teen Drive")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Text(context.state.speedText)
-                            .font(.title3.bold())
-                            .monospacedDigit()
-                    }
-                }
-
-                DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing) {
-                        Text("Top")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Text(context.state.topSpeedText)
-                            .font(.title3.bold())
-                            .monospacedDigit()
-                    }
-                }
-
-                DynamicIslandExpandedRegion(.bottom) {
-                    HStack {
-                        Label(context.state.distanceText, systemImage: "point.topleft.down.curvedto.point.bottomright.up")
-                        Spacer()
-                        Text(context.state.updatedAt, style: .timer)
-                            .monospacedDigit()
-                    }
-                    .font(.caption)
+                DynamicIslandExpandedRegion(.center) {
+                    EmptyView()
                 }
             } compactLeading: {
-                Image(systemName: "speedometer")
+                EmptyView()
             } compactTrailing: {
-                Text(context.state.speedNumberText)
-                    .monospacedDigit()
+                EmptyView()
             } minimal: {
-                Image(systemName: "speedometer")
+                EmptyView()
             }
-            .widgetURL(URL(string: "teendrive://activity"))
-            .keylineTint(.green)
         }
     }
 }
@@ -106,10 +75,6 @@ private extension TeenDriveActivityAttributes.ContentState {
 
     var topSpeedText: String {
         String(format: "%.0f mph", topSpeedMPH)
-    }
-
-    var speedNumberText: String {
-        String(format: "%.0f", speedMPH)
     }
 
     var distanceText: String {

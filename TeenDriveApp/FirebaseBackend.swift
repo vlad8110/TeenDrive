@@ -136,4 +136,12 @@ final class TeenDriveAppDelegate: NSObject, UIApplicationDelegate {
             FirebaseBackend.shared.setAPNSToken(deviceToken)
         }
     }
+
+    func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
+        NotificationCenter.default.post(name: .teenDriveProtectedDataDidBecomeAvailable, object: nil)
+    }
+}
+
+extension Notification.Name {
+    static let teenDriveProtectedDataDidBecomeAvailable = Notification.Name("teenDriveProtectedDataDidBecomeAvailable")
 }

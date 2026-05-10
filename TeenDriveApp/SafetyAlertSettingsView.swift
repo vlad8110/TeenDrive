@@ -6,18 +6,23 @@ struct SafetyAlertSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Optional Alerts") {
+            Section("Safety Alerts") {
                 Toggle("Speed over limit", isOn: $settings.speedAlertsEnabled)
-                Toggle("Rapid acceleration / harsh stop", isOn: $settings.drivingEventAlertsEnabled)
-                Toggle("Trip started", isOn: $settings.tripStartedAlertsEnabled)
-                Toggle("Trip ended", isOn: $settings.tripEndedAlertsEnabled)
+                Toggle("Hard acceleration, stop, or turn", isOn: $settings.drivingEventAlertsEnabled)
+                Toggle("Night driving", isOn: $settings.nightDrivingAlertsEnabled)
+                Toggle("Phone use while moving", isOn: $settings.phoneUseAlertsEnabled)
                 Toggle("Arrived at saved places", isOn: $settings.placeArrivalAlertsEnabled)
+            }
+
+            Section("Drive Status Alerts") {
+                Toggle("Drive started", isOn: $settings.tripStartedAlertsEnabled)
+                Toggle("Drive ended", isOn: $settings.tripEndedAlertsEnabled)
             }
 
             Section("Speed Limit") {
                 Toggle("Use road speed limits", isOn: $settings.roadSpeedLimitsEnabled)
 
-                Stepper(value: $settings.speedLimitMPH, in: 45...100, step: 5) {
+                Stepper(value: $settings.speedLimitMPH, in: 25...100, step: 5) {
                     HStack {
                         Text(settings.roadSpeedLimitsEnabled ? "Fallback alert at" : "Alert at")
                         Spacer()

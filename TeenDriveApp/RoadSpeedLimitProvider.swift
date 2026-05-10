@@ -110,6 +110,10 @@ actor RoadSpeedLimitProvider {
         if normalized.contains("knots") {
             return value * 1.150779
         }
+
+        if Locale.current.region?.identifier == "US" {
+            return value
+        }
         return value * 0.621371
     }
 

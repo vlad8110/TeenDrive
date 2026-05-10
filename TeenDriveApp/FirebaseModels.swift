@@ -39,6 +39,7 @@ struct ActiveTeenDrive: Hashable, Identifiable {
     var distanceMeters: Double
     var alertCount: Int
     var lastKnownLocation: RoutePoint?
+    var safetyAlerts: [SafetyAlert]
     var route: [RoutePoint]
 
     var speedMPH: Double {
@@ -103,6 +104,7 @@ extension ActiveTeenDrive {
         let startedAt = (data["startedAt"] as? Timestamp)?.dateValue() ?? Date()
         let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? startedAt
         let locationData = data["lastKnownLocation"] as? [String: Any]
+        let safetyAlertData = data["safetyAlerts"] as? [[String: Any]] ?? []
         let routeData = data["route"] as? [[String: Any]] ?? []
 
         self.init(
@@ -116,6 +118,7 @@ extension ActiveTeenDrive {
             distanceMeters: data["distanceMeters"] as? Double ?? 0,
             alertCount: data["alertCount"] as? Int ?? 0,
             lastKnownLocation: locationData.flatMap(RoutePoint.init(firestoreData:)),
+            safetyAlerts: safetyAlertData.compactMap(SafetyAlert.init(firestoreData:)),
             route: routeData.compactMap(RoutePoint.init(firestoreData:))
         )
     }

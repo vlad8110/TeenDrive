@@ -4,6 +4,7 @@ import SwiftUI
 import UIKit
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var accountStore: AccountStore
     @StateObject private var sessionStore: SessionStore
     @StateObject private var safetySettings: SafetyAlertSettings
@@ -45,6 +46,14 @@ struct ContentView: View {
             }
         }
         .tint(.green)
+        .onChange(of: scenePhase) {
+            if scenePhase == .active {
+                tracker.recordPhoneUseIfDriving()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .teenDriveProtectedDataDidBecomeAvailable)) { _ in
+            tracker.recordPhoneUseIfDriving(reason: "Phone unlocked while moving")
+        }
     }
 
     private var teenTabs: some View {
@@ -426,7 +435,11 @@ private struct TeenDriveDashboardView<Settings: View>: View {
     }
 
     private func mapCard(compact: Bool, height mapHeight: CGFloat) -> some View {
-        TeenLiveDriveMap(route: tracker.currentRoute, lastKnownLocation: tracker.lastKnownLocation)
+        TeenLiveDriveMap(
+            route: tracker.currentRoute,
+            lastKnownLocation: tracker.lastKnownLocation,
+            alerts: tracker.currentSafetyAlerts
+        )
             .environment(\.teenDriveMapStyle, mapStyle)
             .frame(height: mapHeight)
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -604,6 +617,7 @@ private extension EnvironmentValues {
 private struct TeenLiveDriveMap: View {
     let route: [RoutePoint]
     let lastKnownLocation: RoutePoint?
+    let alerts: [SafetyAlert]
     @Environment(\.teenDriveMapStyle) private var mapStyle
     @State private var cameraPosition: MapCameraPosition = .region(Self.defaultRegion)
 
@@ -616,11 +630,12 @@ private struct TeenLiveDriveMap: View {
     }
 
     private var mapRegion: MKCoordinateRegion {
-        guard let first = route.first?.coordinate ?? lastKnownLocation?.coordinate else {
+        let alertCoordinates = alerts.compactMap(\.coordinate)
+        guard let first = route.first?.coordinate ?? lastKnownLocation?.coordinate ?? alertCoordinates.first else {
             return Self.defaultRegion
         }
 
-        let coordinates = route.map(\.coordinate)
+        let coordinates = route.map(\.coordinate) + [lastKnownLocation?.coordinate].compactMap { $0 } + alertCoordinates
         guard coordinates.count > 1 else {
             return MKCoordinateRegion(center: first, span: MKCoordinateSpan(latitudeDelta: 0.025, longitudeDelta: 0.025))
         }
@@ -665,6 +680,13 @@ private struct TeenLiveDriveMap: View {
                     .tint(.green)
             }
 
+            ForEach(alerts) { alert in
+                if let coordinate = alert.coordinate {
+                    Marker(alert.kind.title, systemImage: alert.kind.systemImage, coordinate: coordinate)
+                        .tint(.orange)
+                }
+            }
+
             if let lastKnownLocation {
                 Annotation("Current", coordinate: lastKnownLocation.coordinate) {
                     CurrentLocationDot()
@@ -684,6 +706,9 @@ private struct TeenLiveDriveMap: View {
             updateCamera(animated: true)
         }
         .onChange(of: lastKnownLocation) {
+            updateCamera(animated: true)
+        }
+        .onChange(of: alerts) {
             updateCamera(animated: true)
         }
     }
@@ -730,16 +755,13 @@ private struct SpeedLimitBadge: View {
         if let limitMPH {
             return String(format: "%.0f", limitMPH)
         }
-        if roadLimitsEnabled {
-            return "N/A"
-        }
         return String(format: "%.0f", fallbackLimitMPH)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(isRoadLimit ? "ROAD" : roadLimitsEnabled ? "ROAD" : "ALERT")
-            Text("LIMIT")
+            Text(isRoadLimit ? "ROAD" : roadLimitsEnabled ? "FALL" : "ALERT")
+            Text(isRoadLimit ? "LIMIT" : roadLimitsEnabled ? "BACK" : "LIMIT")
             Text(displayedLimit)
                 .font(.system(size: displayedLimit.count > 2 ? 18 : 22, weight: .black))
                 .minimumScaleFactor(0.8)

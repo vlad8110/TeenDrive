@@ -48,6 +48,9 @@ enum SafetyAlertKind: String, Codable, Hashable {
     case speedLimit
     case rapidAcceleration
     case harshStop
+    case harshCornering
+    case nightDriving
+    case phoneUse
     case tripStarted
     case tripEnded
     case placeArrival
@@ -60,6 +63,12 @@ enum SafetyAlertKind: String, Codable, Hashable {
             return "Rapid acceleration"
         case .harshStop:
             return "Harsh stop"
+        case .harshCornering:
+            return "Harsh cornering"
+        case .nightDriving:
+            return "Night driving"
+        case .phoneUse:
+            return "Phone use"
         case .tripStarted:
             return "Trip started"
         case .tripEnded:
@@ -77,12 +86,27 @@ enum SafetyAlertKind: String, Codable, Hashable {
             return "bolt.fill"
         case .harshStop:
             return "exclamationmark.octagon.fill"
+        case .harshCornering:
+            return "arrow.turn.up.right"
+        case .nightDriving:
+            return "moon.stars.fill"
+        case .phoneUse:
+            return "iphone.gen3.radiowaves.left.and.right"
         case .tripStarted:
             return "play.fill"
         case .tripEnded:
             return "stop.fill"
         case .placeArrival:
             return "mappin.and.ellipse"
+        }
+    }
+
+    var countsAsSafetyAlert: Bool {
+        switch self {
+        case .tripStarted, .tripEnded:
+            return false
+        case .speedLimit, .rapidAcceleration, .harshStop, .harshCornering, .nightDriving, .phoneUse, .placeArrival:
+            return true
         }
     }
 }
@@ -199,7 +223,7 @@ struct TeenTrip: Codable, Hashable, Identifiable {
     }
 
     var safetyAlertCount: Int {
-        safetyAlerts.isEmpty ? speedAlerts.count : safetyAlerts.count
+        displaySafetyAlerts.count
     }
 
     var speedLimitAlertCount: Int {
@@ -214,13 +238,26 @@ struct TeenTrip: Codable, Hashable, Identifiable {
         displaySafetyAlerts.filter { $0.kind == .harshStop }.count
     }
 
+    var harshCorneringAlertCount: Int {
+        displaySafetyAlerts.filter { $0.kind == .harshCornering }.count
+    }
+
+    var nightDrivingAlertCount: Int {
+        displaySafetyAlerts.filter { $0.kind == .nightDriving }.count
+    }
+
+    var phoneUseAlertCount: Int {
+        displaySafetyAlerts.filter { $0.kind == .phoneUse }.count
+    }
+
     var drivingEventAlertCount: Int {
-        rapidAccelerationAlertCount + harshStopAlertCount
+        rapidAccelerationAlertCount + harshStopAlertCount + harshCorneringAlertCount
     }
 
     var displaySafetyAlerts: [SafetyAlert] {
-        if !safetyAlerts.isEmpty {
-            return safetyAlerts
+        let safetyEvents = safetyAlerts.filter { $0.kind.countsAsSafetyAlert }
+        if !safetyEvents.isEmpty {
+            return safetyEvents
         }
 
         return speedAlerts.map { alert in
@@ -241,14 +278,15 @@ struct TeenTrip: Codable, Hashable, Identifiable {
     }
 
     var mapRegion: MKCoordinateRegion {
-        guard let first = coordinates.first else {
+        let mappedCoordinates = coordinates + displaySafetyAlerts.compactMap(\.coordinate)
+        guard let first = mappedCoordinates.first else {
             return MKCoordinateRegion(
                 center: CLLocationCoordinate2D(latitude: 37.3349, longitude: -122.0090),
                 span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
             )
         }
 
-        let bounds = coordinates.reduce(
+        let bounds = mappedCoordinates.reduce(
             (minLat: first.latitude, maxLat: first.latitude, minLon: first.longitude, maxLon: first.longitude)
         ) { bounds, coordinate in
             (
