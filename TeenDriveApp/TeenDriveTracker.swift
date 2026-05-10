@@ -638,9 +638,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         TeenDriveActivityAttributes.ContentState(
             speedMetersPerSecond: speedMetersPerSecond,
             topSpeedMetersPerSecond: topSpeedMetersPerSecond,
-            distanceMeters: distanceMeters,
-            startedAt: startedAt,
-            updatedAt: Date()
+            distanceMeters: distanceMeters
         )
     }
 

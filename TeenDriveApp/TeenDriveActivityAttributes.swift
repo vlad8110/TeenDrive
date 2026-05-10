@@ -6,8 +6,6 @@ struct TeenDriveActivityAttributes: ActivityAttributes {
         var speedMetersPerSecond: Double
         var topSpeedMetersPerSecond: Double
         var distanceMeters: Double
-        var startedAt: Date
-        var updatedAt: Date
     }
 
     var activityName: String
