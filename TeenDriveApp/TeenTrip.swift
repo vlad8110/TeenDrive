@@ -1,13 +1,29 @@
+/*
+ File: TeenTrip.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Defines trip, route, speed alert, safety alert, map region, and behavior score models.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import CoreLocation
 import Foundation
 import MapKit
 
+// A route point is the smallest stored piece of a trip path.
 struct RoutePoint: Codable, Hashable, Identifiable {
     let id: UUID
     let latitude: Double
     let longitude: Double
     let timestamp: Date
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init(id: UUID = UUID(), latitude: Double, longitude: Double, timestamp: Date) {
         self.id = id
         self.latitude = latitude
@@ -27,6 +43,10 @@ struct SpeedAlert: Codable, Hashable, Identifiable {
     let latitude: Double
     let longitude: Double
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init(id: UUID = UUID(), timestamp: Date, speedMetersPerSecond: Double, latitude: Double, longitude: Double) {
         self.id = id
         self.timestamp = timestamp
@@ -45,6 +65,7 @@ struct SpeedAlert: Codable, Hashable, Identifiable {
 }
 
 enum SafetyAlertKind: String, Codable, Hashable {
+    // Status alerts explain trip/place events; safety alerts affect counts and scores.
     case speedLimit
     case rapidAcceleration
     case harshStop
@@ -120,6 +141,10 @@ struct SafetyAlert: Codable, Hashable, Identifiable {
     let longitude: Double?
     let note: String?
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init(
         id: UUID = UUID(),
         kind: SafetyAlertKind,
@@ -167,6 +192,10 @@ struct TeenTrip: Codable, Hashable, Identifiable {
     let safetyAlerts: [SafetyAlert]
     let route: [RoutePoint]
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init(
         id: UUID,
         startedAt: Date,
@@ -198,6 +227,10 @@ struct TeenTrip: Codable, Hashable, Identifiable {
         case route
     }
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -329,6 +362,10 @@ struct TripBehaviorScoreBreakdown: Equatable {
         topSpeedPenalty + speedingPenalty + drivingEventPenalty + harshStopPenalty + alertRatePenalty
     }
 
+    /*
+     Purpose:
+     Computes behavior score penalties from speeding and driving alert counts.
+    */
     static func compute(for trip: TeenTrip) -> TripBehaviorScoreBreakdown {
         let durationHours = max(trip.duration / 3600, 0.1667)
         let totalAlerts = Double(trip.safetyAlertCount)

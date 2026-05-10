@@ -1,8 +1,20 @@
+/*
+ File: ContentView.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Composes the main app shell, role routing, teen tabs, parent tabs, live maps, dashboard cards, and shared UI pieces.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import CoreLocation
 import MapKit
 import SwiftUI
 import UIKit
 
+// Owns the long-lived app stores so the tracker, account, settings, and trips stay in sync.
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var accountStore: AccountStore
@@ -11,6 +23,10 @@ struct ContentView: View {
     @StateObject private var tracker: TeenDriveTracker
     @State private var selectedTeenTab: TeenTab = .drive
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init() {
         let accountStore = AccountStore()
         let sessionStore = SessionStore()
@@ -47,11 +63,13 @@ struct ContentView: View {
         }
         .tint(.green)
         .onChange(of: scenePhase) {
+            // Opening the app during a drive is treated as a lightweight phone-use signal.
             if scenePhase == .active {
                 tracker.recordPhoneUseIfDriving()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .teenDriveProtectedDataDidBecomeAvailable)) { _ in
+            // Protected data becoming available is a practical signal that the phone was unlocked.
             tracker.recordPhoneUseIfDriving(reason: "Phone unlocked while moving")
         }
     }
@@ -348,6 +366,10 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         }
     }
 
+    /*
+     Purpose:
+     Formats a live or completed drive duration for display.
+    */
     private func durationText(now: Date = Date()) -> String {
         guard let startedAt = tracker.activeTripStartedAt else { return "00:00:00" }
         let seconds = max(0, Int(now.timeIntervalSince(startedAt)))
@@ -367,6 +389,10 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         .background(Color.black)
     }
 
+    /*
+     Purpose:
+     Builds the main teen drive screen contents for the current layout size.
+    */
     private func driveContent(duration: String) -> some View {
         GeometryReader { proxy in
             let compact = proxy.size.height < 760
@@ -394,10 +420,18 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         }
     }
 
+    /*
+     Purpose:
+     Chooses vertical padding that keeps the drive screen balanced on compact devices.
+    */
     private func driveTopPadding(compact: Bool) -> CGFloat {
         compact ? 22 : 34
     }
 
+    /*
+     Purpose:
+     Chooses a responsive map height for the live drive screen.
+    */
     private func driveMapHeight(
         containerHeight: CGFloat,
         compact: Bool,
@@ -415,6 +449,10 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         return max(minimumMapHeight, availableHeight)
     }
 
+    /*
+     Purpose:
+     Builds the teen drive screen header.
+    */
     private func header(compact: Bool) -> some View {
         TeenScreenHeader(title: "Drive", compact: compact) {
             HStack(spacing: 8) {
@@ -434,6 +472,10 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         }
     }
 
+    /*
+     Purpose:
+     Builds the live route map container and overlays current alert markers.
+    */
     private func mapCard(compact: Bool, height mapHeight: CGFloat) -> some View {
         TeenLiveDriveMap(
             route: tracker.currentRoute,
@@ -499,6 +541,10 @@ private struct TeenDriveDashboardView<Settings: View>: View {
             .frame(height: mapHeight)
     }
 
+    /*
+     Purpose:
+     Builds the current drive metric summary card.
+    */
     private func metricsCard(duration: String, compact: Bool) -> some View {
         HStack(spacing: 0) {
             DriveMetric(
@@ -538,6 +584,10 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
     }
 
+    /*
+     Purpose:
+     Builds the main start, stop, or permission button for drive tracking.
+    */
     private func actionButton(compact: Bool) -> some View {
         VStack(spacing: compact ? 8 : 10) {
             if showsLocationPermissionAction {
@@ -564,6 +614,10 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         }
     }
 
+    /*
+     Purpose:
+     Routes the permission button to the next needed location authorization step.
+    */
     private func handleLocationPermissionAction() {
         switch tracker.authorizationStatus {
         case .denied, .restricted:
@@ -589,6 +643,10 @@ private enum TeenDriveMapStyle {
     case standard
     case satellite
 
+    /*
+     Purpose:
+     Performs the toggle operation for this file's feature area.
+    */
     mutating func toggle() {
         self = self == .standard ? .satellite : .standard
     }
@@ -713,6 +771,10 @@ private struct TeenLiveDriveMap: View {
         }
     }
 
+    /*
+     Purpose:
+     Moves the map camera to keep route and alert points visible.
+    */
     private func updateCamera(animated: Bool) {
         let position = MapCameraPosition.region(mapRegion)
         if animated {
@@ -925,6 +987,10 @@ private struct TeenHomeView: View {
         }
     }
 
+    /*
+     Purpose:
+     Builds the teen home header showing the current profile and status.
+    */
     private func homeHeader(compact: Bool) -> some View {
         TeenScreenHeader(title: "TeenDrive", compact: compact) {
             HStack(spacing: 4) {
@@ -941,6 +1007,10 @@ private struct TeenHomeView: View {
         }
     }
 
+    /*
+     Purpose:
+     Builds the prominent safety score summary on the teen home screen.
+    */
     private func scoreHero(compact: Bool) -> some View {
         HStack(spacing: compact ? 10 : 14) {
             VStack(alignment: .leading, spacing: compact ? 8 : 12) {
@@ -1008,6 +1078,10 @@ private struct TeenHomeView: View {
         }
     }
 
+    /*
+     Purpose:
+     Builds home-screen cards for focus areas and parent connection status.
+    */
     private func focusAndParentGrid(compact: Bool) -> some View {
         HStack(spacing: compact ? 8 : 10) {
             VStack(alignment: .leading, spacing: compact ? 8 : 12) {
@@ -1083,6 +1157,10 @@ private struct TeenHomeView: View {
         }
     }
 
+    /*
+     Purpose:
+     Builds short home-screen guidance rows from the latest trip history.
+    */
     private func quickInsights(compact: Bool) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: compact ? 6 : 8) {
@@ -1136,6 +1214,10 @@ private struct TeenHomeView: View {
         )
     }
 
+    /*
+     Purpose:
+     Builds one compact statistic tile on the teen home screen.
+    */
     private func homeStatTile(icon: String, color: Color, title: String, value: String, detail: String, compact: Bool) -> some View {
         HStack(spacing: compact ? 8 : 10) {
             Image(systemName: icon)
@@ -1165,6 +1247,10 @@ private struct TeenHomeView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
     }
 
+    /*
+     Purpose:
+     Builds one readable insight row for the teen home screen.
+    */
     private func insightRow(_ text: String, compact: Bool) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle")
@@ -1235,6 +1321,10 @@ private struct ScoreBreakdownSheet: View {
         }
     }
 
+    /*
+     Purpose:
+     Builds one row in the trip behavior score penalty breakdown.
+    */
     private func breakdownRow(title: String, points: Double, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {

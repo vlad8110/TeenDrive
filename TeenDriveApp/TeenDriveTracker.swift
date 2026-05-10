@@ -1,3 +1,14 @@
+/*
+ File: TeenDriveTracker.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Runs live drive tracking, route capture, safety alert detection, parent live-drive sync, and Lock Screen Live Activity updates.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import ActivityKit
 import CoreLocation
 import FirebaseFirestore
@@ -5,6 +16,7 @@ import Foundation
 
 @MainActor
 final class TeenDriveTracker: NSObject, ObservableObject {
+    // Detection thresholds are intentionally conservative to reduce false positives from GPS noise.
     private let autoStartThresholdMetersPerSecond = 5 / 2.2369362921
     private let autoStopIdleInterval: TimeInterval = 5 * 60
     private let rapidAccelerationThreshold: Double = 3.0
@@ -54,6 +66,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     private var lastActiveDriveSyncAt: Date?
     private var liveActivity: Activity<TeenDriveActivityAttributes>?
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init(sessionStore: SessionStore, safetySettings: SafetyAlertSettings, accountStore: AccountStore) {
         self.sessionStore = sessionStore
         self.safetySettings = safetySettings
@@ -95,6 +111,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         safetySettings.roadSpeedLimitsEnabled
     }
 
+    /*
+     Purpose:
+     Starts the iOS location permission flow needed for drive tracking.
+    */
     func requestPermission() {
         switch authorizationStatus {
         case .notDetermined:
@@ -111,6 +131,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Asks for Always Location permission so auto-start and background tracking can work.
+    */
     func requestAlwaysPermission() {
         switch authorizationStatus {
         case .notDetermined:
@@ -128,6 +152,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Requests a fresh location sample so the map can center on the current position.
+    */
     func centerMapOnCurrentLocation() {
         if authorizationStatus == .notDetermined {
             requestPermission()
@@ -143,10 +171,18 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         locationManager.startUpdatingLocation()
     }
 
+    /*
+     Purpose:
+     Begins a new drive either manually or from the auto-start detector.
+    */
     func start() {
         start(automatic: false, initialLocation: nil)
     }
 
+    /*
+     Purpose:
+     Begins a new drive either manually or from the auto-start detector.
+    */
     private func start(automatic: Bool, initialLocation: CLLocation?) {
         if authorizationStatus == .notDetermined {
             requestPermission()
@@ -196,10 +232,18 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         startLiveActivity()
     }
 
+    /*
+     Purpose:
+     Ends the current drive, saves it, clears live state, and rearms auto-start when possible.
+    */
     func stop() {
         stop(reason: "Stopped")
     }
 
+    /*
+     Purpose:
+     Ends the current drive, saves it, clears live state, and rearms auto-start when possible.
+    */
     private func stop(reason: String) {
         if safetySettings.tripEndedAlertsEnabled {
             recordSafetyAlert(kind: .tripEnded, timestamp: Date(), speedMetersPerSecond: speedMetersPerSecond, point: lastKnownLocation, note: reason)
@@ -213,7 +257,12 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         armAutoStartIfPossible(statusMessage: reason)
     }
 
+    /*
+     Purpose:
+     Processes one location sample and updates speed, route, alerts, live sync, and Live Activity state.
+    */
     private func handle(location: CLLocation) {
+        // One location sample drives speed display, auto-start, alert checks, route history, and sync.
         let measuredSpeed = max(location.speed, 0)
         speedMetersPerSecond = measuredSpeed
 
@@ -255,7 +304,12 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         updateLiveActivity()
     }
 
+    /*
+     Purpose:
+     Detects sustained speeding above the active road or fallback limit.
+    */
     private func updateSpeedAlertState(for location: CLLocation, speedMetersPerSecond: Double) {
+        // Require a small grace amount and a short sustained interval before recording speeding.
         guard safetySettings.speedAlertsEnabled else {
             isOverSpeedAlertThreshold = false
             overSpeedStartedAt = nil
@@ -297,7 +351,12 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Detects rapid acceleration and harsh braking from consecutive speed samples.
+    */
     private func updateDrivingEventState(for location: CLLocation, speedMetersPerSecond: Double) {
+        // Acceleration and braking are calculated from consecutive speed samples.
         guard safetySettings.drivingEventAlertsEnabled else {
             previousSpeedSample = (speedMetersPerSecond, location.timestamp)
             return
@@ -339,7 +398,12 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         statusMessage = kind.title
     }
 
+    /*
+     Purpose:
+     Detects harsh cornering by estimating lateral acceleration from speed and heading change.
+    */
     private func updateCorneringEventState(for location: CLLocation, speedMetersPerSecond: Double) {
+        // Harsh cornering estimates lateral acceleration from speed and heading change.
         guard safetySettings.drivingEventAlertsEnabled else { return }
         guard let previousLocation,
               previousLocation.course >= 0,
@@ -370,6 +434,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         statusMessage = "Harsh cornering"
     }
 
+    /*
+     Purpose:
+     Records a once-per-trip alert when driving happens during the configured night window.
+    */
     private func updateNightDrivingState(for location: CLLocation) {
         guard safetySettings.nightDrivingAlertsEnabled, !didRecordNightDriving else { return }
         guard Self.isNightDrivingTime(location.timestamp) else { return }
@@ -386,7 +454,12 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         statusMessage = "Night driving"
     }
 
+    /*
+     Purpose:
+     Records phone-use alerts when the app or unlock signal appears during active driving.
+    */
     func recordPhoneUseIfDriving(reason: String = "App opened while moving") {
+        // iOS does not expose exact phone-use details, so this records strong app/unlock signals.
         guard safetySettings.phoneUseAlertsEnabled, isTracking else { return }
         guard Date().timeIntervalSince(startedAt) >= 30, speedMPH >= 10 else { return }
         if let lastPhoneUseAlertAt, Date().timeIntervalSince(lastPhoneUseAlertAt) < phoneUseAlertCooldown {
@@ -405,6 +478,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         statusMessage = "Phone use while moving"
     }
 
+    /*
+     Purpose:
+     Records arrival alerts when the teen enters the radius of a saved place.
+    */
     private func updatePlaceArrivalState(for location: CLLocation) {
         guard safetySettings.placeArrivalAlertsEnabled else { return }
         guard CLLocationCoordinate2DIsValid(location.coordinate), location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 100 else { return }
@@ -426,6 +503,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Refreshes the current road speed limit when GPS quality is good enough.
+    */
     private func updateRoadSpeedLimitIfNeeded(for location: CLLocation) {
         guard safetySettings.roadSpeedLimitsEnabled,
               CLLocationCoordinate2DIsValid(location.coordinate),
@@ -452,6 +533,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Stops the trip automatically after the vehicle has been idle long enough.
+    */
     private func updateIdleState(speedMetersPerSecond: Double) {
         if speedMetersPerSecond >= autoStartThresholdMetersPerSecond {
             lastMovementAt = Date()
@@ -464,6 +549,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Prepares background location updates so a future drive can auto-start.
+    */
     private func armAutoStartIfPossible(statusMessage message: String? = nil) {
         guard authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse else {
             isAutoStartArmed = false
@@ -478,6 +567,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Adds a valid GPS point to the current trip route and published route state.
+    */
     private func appendRoutePoint(for location: CLLocation) {
         guard CLLocationCoordinate2DIsValid(location.coordinate), location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 100 else {
             return
@@ -493,6 +586,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         lastKnownLocation = point
     }
 
+    /*
+     Purpose:
+     Publishes the latest valid GPS coordinate for maps and phone-use alert locations.
+    */
     private func updateLiveLocation(for location: CLLocation) {
         guard CLLocationCoordinate2DIsValid(location.coordinate), location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 100 else {
             return
@@ -506,6 +603,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         lastKnownLocation = point
     }
 
+    /*
+     Purpose:
+     Builds a completed TeenTrip from current drive state and stores it in the session store.
+    */
     private func saveSession() {
         guard !route.isEmpty || distanceMeters > 0 else { return }
 
@@ -523,6 +624,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         sessionStore.add(session)
     }
 
+    /*
+     Purpose:
+     Creates a safety alert, updates live counts, syncs parents, and triggers notifications.
+    */
     private func recordSafetyAlert(
         kind: SafetyAlertKind,
         timestamp: Date,
@@ -550,7 +655,12 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Writes the teen active-drive snapshot used by the parent live dashboard.
+    */
     private func syncActiveDrive(force: Bool = false) {
+        // Active-drive documents power the parent's live map and are throttled to save writes.
         guard isTracking,
               accountStore.role == .teen,
               let db = FirebaseBackend.shared.database,
@@ -603,6 +713,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Marks the teen active-drive document inactive after a trip ends.
+    */
     private func clearActiveDrive() {
         guard accountStore.role == .teen,
               let db = FirebaseBackend.shared.database,
@@ -634,6 +748,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Builds the small state payload displayed by the Lock Screen Live Activity.
+    */
     private func activityState() -> TeenDriveActivityAttributes.ContentState {
         TeenDriveActivityAttributes.ContentState(
             speedMetersPerSecond: speedMetersPerSecond,
@@ -642,7 +760,12 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         )
     }
 
+    /*
+     Purpose:
+     Starts or reuses the Lock Screen Live Activity for the current drive.
+    */
     private func startLiveActivity() {
+        // Reuse any existing activity after relaunch so the lock-screen card does not duplicate.
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             statusMessage = "Live Activities are unavailable"
             return
@@ -675,6 +798,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Pushes the latest speed, top speed, and distance into the Live Activity.
+    */
     private func updateLiveActivity() {
         guard let liveActivity else { return }
         let content = ActivityContent(state: activityState(), staleDate: Date().addingTimeInterval(60))
@@ -684,6 +811,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Ends any active Teen Drive Live Activity when tracking stops.
+    */
     private func endLiveActivity() {
         guard let liveActivity else {
             let activities = Activity<TeenDriveActivityAttributes>.activities
@@ -709,6 +840,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Returns the signed shortest heading change between two compass bearings.
+    */
     private static func smallestAngleDeltaDegrees(from start: CLLocationDirection, to end: CLLocationDirection) -> Double {
         let delta = (end - start).truncatingRemainder(dividingBy: 360)
         if delta > 180 {
@@ -720,6 +855,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         return delta
     }
 
+    /*
+     Purpose:
+     Checks whether a timestamp falls inside the night-driving alert window.
+    */
     private static func isNightDrivingTime(_ date: Date) -> Bool {
         let hour = Calendar.current.component(.hour, from: date)
         return hour >= 22 || hour < 5
@@ -727,6 +866,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
 }
 
 extension TeenDriveTracker: CLLocationManagerDelegate {
+    /*
+     Purpose:
+     Responds to location permission changes from iOS.
+    */
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
             authorizationStatus = manager.authorizationStatus
@@ -746,6 +889,10 @@ extension TeenDriveTracker: CLLocationManagerDelegate {
         }
     }
 
+    /*
+     Purpose:
+     Receives location updates or location errors from Core Location.
+    */
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         Task { @MainActor in
@@ -753,6 +900,10 @@ extension TeenDriveTracker: CLLocationManagerDelegate {
         }
     }
 
+    /*
+     Purpose:
+     Receives location updates or location errors from Core Location.
+    */
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in
             statusMessage = error.localizedDescription

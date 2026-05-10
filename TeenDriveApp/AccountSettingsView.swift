@@ -1,5 +1,17 @@
+/*
+ File: AccountSettingsView.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Builds the profile, pairing, sync status, and disconnect screens used by teen and parent accounts.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import SwiftUI
 
+// Lets users edit their profile identity and manage parent/teen pairing.
 struct AccountSettingsView: View {
     @ObservedObject var accountStore: AccountStore
     var usesTeenHeader = false
@@ -342,6 +354,10 @@ struct AccountSettingsView: View {
         }
     }
 
+    /*
+     Purpose:
+     Builds the row for one teen connected to a parent account.
+    */
     private func connectedTeenRow(_ teen: ConnectedTeen) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "person.fill")

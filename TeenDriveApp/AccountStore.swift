@@ -1,6 +1,18 @@
+/*
+ File: AccountStore.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Owns local account state, selected role, pairing codes, connected family members, and Firebase profile synchronization.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import FirebaseFirestore
 import Foundation
 
+// The app runs in one of two modes; role controls which tabs and cloud records are used.
 enum AccountRole: String, CaseIterable, Codable, Identifiable {
     case teen
     case parent
@@ -24,6 +36,10 @@ struct ConnectedTeen: Codable, Hashable, Identifiable {
     var teenProfileID: String
     var familyGroupID: String
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init(
         id: UUID = UUID(),
         name: String,
@@ -129,6 +145,10 @@ final class AccountStore: ObservableObject {
     @Published private(set) var lastSuccessfulCloudSyncAt: Date?
     private var teenProfileListener: ListenerRegistration?
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init() {
         let defaults = UserDefaults.standard
         hasSelectedRole = defaults.object(forKey: Keys.hasSelectedRole) as? Bool ?? false
@@ -174,6 +194,10 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Cleans up listeners or resources when this object is released.
+    */
     deinit {
         teenProfileListener?.remove()
     }
@@ -215,6 +239,10 @@ final class AccountStore: ObservableObject {
         return components.url?.absoluteString ?? "teendrive://pair?code=\(pairingCode)"
     }
 
+    /*
+     Purpose:
+     Stores the selected account role and prepares the app to show the matching teen or parent experience.
+    */
     func selectRole(_ role: AccountRole) {
         self.role = role
         hasSelectedRole = true
@@ -223,10 +251,18 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Creates a fresh teen pairing code when the current code should no longer be shared.
+    */
     func regeneratePairingCode() {
         pairingCode = AccountStore.makePairingCode()
     }
 
+    /*
+     Purpose:
+     Validates a scanned pairing payload and connects the current parent account to the teen.
+    */
     func connectParent(name: String, scannedPayload: String) async -> Bool {
         guard let pairing = Self.pairing(from: scannedPayload) else { return false }
         guard !pairing.teenProfileID.isEmpty, !pairing.familyGroupID.isEmpty else {
@@ -248,11 +284,19 @@ final class AccountStore: ObservableObject {
         return true
     }
 
+    /*
+     Purpose:
+     Removes selected teen connections from the parent account list.
+    */
     func deleteConnectedTeens(at offsets: IndexSet) {
         connectedTeens.remove(atOffsets: offsets)
         connectedTeenCode = connectedTeens.first?.pairingCode ?? ""
     }
 
+    /*
+     Purpose:
+     Clears local pairing information and removes listeners so the account can start over safely.
+    */
     func disconnect() {
         connectedParentName = ""
         connectedParentID = ""
@@ -264,11 +308,20 @@ final class AccountStore: ObservableObject {
         cloudSyncState = lastSuccessfulCloudSyncAt == nil ? .idle : .upToDate
     }
 
+    /*
+     Purpose:
+     Generates the short numeric code embedded in a teen pairing QR payload.
+    */
     private static func makePairingCode() -> String {
         String((0..<6).map { _ in String(Int.random(in: 0...9)) }.joined())
     }
 
+    /*
+     Purpose:
+     Synchronizes the selected teen or parent account with Firebase while preserving offline local state.
+    */
     func syncAccount() async {
+        // Keep the local account usable offline, but fill in cloud IDs when Firebase is available.
         guard hasSelectedRole else { return }
         cloudSyncState = .syncing
         guard let userID = await FirebaseBackend.shared.signInIfNeeded() else {
@@ -284,6 +337,10 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Creates or updates the teen profile and family group documents in Firestore.
+    */
     private func syncTeenProfile(userID: String) async {
         guard let db = FirebaseBackend.shared.database else {
             cloudSyncState = .blocked(FirebaseBackend.shared.statusMessage)
@@ -322,6 +379,10 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Creates or updates the parent profile and refreshes connected teen relationships in Firestore.
+    */
     private func syncParentProfile(userID: String) async {
         guard let db = FirebaseBackend.shared.database else {
             cloudSyncState = .blocked(FirebaseBackend.shared.statusMessage)
@@ -351,6 +412,10 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Writes the parent-to-teen relationship into the teen profile, parent profile, and family group documents.
+    */
     private func connectParentInFirestore(
         pairing: (code: String, teenName: String, teenProfileID: String, familyGroupID: String),
         parentName: String
@@ -402,6 +467,10 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Adds a connected teen or updates the existing matching connection without creating duplicates.
+    */
     private func upsert(connectedTeen: ConnectedTeen) {
         connectedTeens.removeAll { existing in
             existing.pairingCode == connectedTeen.pairingCode ||
@@ -411,11 +480,19 @@ final class AccountStore: ObservableObject {
         connectedTeens.sort { $0.name < $1.name }
     }
 
+    /*
+     Purpose:
+     Returns a trimmed user display name or a safe fallback when the profile name is empty.
+    */
     private func normalizedDisplayName(fallback: String) -> String {
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? fallback : name
     }
 
+    /*
+     Purpose:
+     Records a successful cloud sync timestamp and updates the visible sync state.
+    */
     private func markCloudSyncSucceeded() {
         let now = Date()
         lastSuccessfulCloudSyncAt = now
@@ -423,6 +500,10 @@ final class AccountStore: ObservableObject {
         cloudSyncState = .upToDate
     }
 
+    /*
+     Purpose:
+     Loads the connected parent display name for a teen account after pairing or sync.
+    */
     private func refreshConnectedParentName(teenProfileID: String, db: Firestore) async {
         do {
             let teenDocument = try await db.collection("teenProfiles").document(teenProfileID).getDocument()
@@ -466,6 +547,10 @@ final class AccountStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Subscribes to the teen profile so parent connection changes update the teen UI live.
+    */
     private func startTeenProfileListener(teenProfileID: String, db: Firestore) {
         teenProfileListener?.remove()
         teenProfileListener = db.collection("teenProfiles")
@@ -478,6 +563,10 @@ final class AccountStore: ObservableObject {
             }
     }
 
+    /*
+     Purpose:
+     Parses and validates the text stored inside a Teen Drive pairing QR code.
+    */
     private static func pairing(from payload: String) -> (code: String, teenName: String, teenProfileID: String, familyGroupID: String)? {
         if let components = URLComponents(string: payload),
            components.scheme == "teendrive",
@@ -494,11 +583,19 @@ final class AccountStore: ObservableObject {
         return trimmed.isEmpty ? nil : (trimmed.uppercased(), "", "", "")
     }
 
+    /*
+     Purpose:
+     Persists the parent account connected-teen list to local storage.
+    */
     private func saveConnectedTeens() {
         guard let data = try? JSONEncoder().encode(connectedTeens) else { return }
         UserDefaults.standard.set(data, forKey: Keys.connectedTeens)
     }
 
+    /*
+     Purpose:
+     Persists the teen account connected-parent list to local storage.
+    */
     private func saveConnectedParents() {
         guard let data = try? JSONEncoder().encode(connectedParents) else { return }
         UserDefaults.standard.set(data, forKey: Keys.connectedParents)

@@ -1,3 +1,14 @@
+/*
+ File: TeenDriveLiveActivity.swift
+ Created: 2026-05-08
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Renders the Lock Screen Live Activity for an active teen drive while leaving Dynamic Island content blank.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import ActivityKit
 import SwiftUI
 import WidgetKit
@@ -9,6 +20,7 @@ struct TeenDriveLiveActivity: Widget {
                 .activityBackgroundTint(.black)
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { _ in
+            // Dynamic Island content is intentionally blank; the app only uses the Lock Screen card.
             DynamicIsland {
                 DynamicIslandExpandedRegion(.center) {
                     EmptyView()

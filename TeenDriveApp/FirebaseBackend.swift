@@ -1,3 +1,14 @@
+/*
+ File: FirebaseBackend.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Configures Firebase, signs users in anonymously, registers for remote notifications, and stores push messaging tokens.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import FirebaseAuth
 import FirebaseCore
 import FirebaseFirestore
@@ -17,6 +28,10 @@ final class FirebaseBackend: NSObject, ObservableObject {
     private var hasRequestedNotificationPermission = UserDefaults.standard.bool(forKey: Keys.hasRequestedNotificationPermission)
     private var hasAPNSToken = false
 
+    /*
+     Purpose:
+     Performs the function operation for this file's feature area.
+    */
     private override init() {
         super.init()
     }
@@ -26,7 +41,12 @@ final class FirebaseBackend: NSObject, ObservableObject {
         return Firestore.firestore()
     }
 
+    /*
+     Purpose:
+     Initializes Firebase only when the app has a bundled GoogleService-Info configuration file.
+    */
     func configureIfPossible() {
+        // The app can still run locally without Firebase; cloud features activate when config exists.
         guard !isConfigured else { return }
         guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else {
             statusMessage = "Add GoogleService-Info.plist to enable Firebase"
@@ -41,6 +61,10 @@ final class FirebaseBackend: NSObject, ObservableObject {
         UIApplication.shared.registerForRemoteNotifications()
     }
 
+    /*
+     Purpose:
+     Returns the current Firebase user ID or signs in anonymously when needed.
+    */
     func signInIfNeeded() async -> String? {
         configureIfPossible()
         guard isConfigured else { return nil }
@@ -64,6 +88,10 @@ final class FirebaseBackend: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Prompts the user for permission to show push/local notifications.
+    */
     func requestNotificationPermission() async {
         do {
             _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
@@ -72,6 +100,10 @@ final class FirebaseBackend: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Hands the Apple Push Notification token to Firebase Messaging.
+    */
     func setAPNSToken(_ deviceToken: Data) {
         guard isConfigured else { return }
         hasAPNSToken = true
@@ -79,6 +111,10 @@ final class FirebaseBackend: NSObject, ObservableObject {
         refreshMessagingTokenIfPossible()
     }
 
+    /*
+     Purpose:
+     Fetches the Firebase Cloud Messaging token once Firebase and APNs are ready.
+    */
     func refreshMessagingTokenIfPossible() {
         guard isConfigured, hasAPNSToken else { return }
         Messaging.messaging().token { [weak self] token, _ in
@@ -88,6 +124,10 @@ final class FirebaseBackend: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Requests notification permission once per install after cloud sign-in succeeds.
+    */
     private func requestNotificationPermissionIfNeeded() {
         guard !hasRequestedNotificationPermission else { return }
         hasRequestedNotificationPermission = true
@@ -97,6 +137,10 @@ final class FirebaseBackend: NSObject, ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Builds a user-readable status string from a Firebase error.
+    */
     private func firebaseErrorMessage(prefix: String, error: Error) -> String {
         let nsError = error as NSError
         if let message = nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String {
@@ -111,6 +155,10 @@ private enum Keys {
 }
 
 extension FirebaseBackend: MessagingDelegate {
+    /*
+     Purpose:
+     Receives refreshed Firebase Cloud Messaging tokens from the Messaging SDK.
+    */
     nonisolated func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         Task { @MainActor in
             self.fcmToken = fcmToken
@@ -119,6 +167,10 @@ extension FirebaseBackend: MessagingDelegate {
 }
 
 extension FirebaseBackend: UNUserNotificationCenterDelegate {
+    /*
+     Purpose:
+     Controls how notifications appear when the app is in the foreground.
+    */
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
@@ -128,6 +180,10 @@ extension FirebaseBackend: UNUserNotificationCenterDelegate {
 }
 
 final class TeenDriveAppDelegate: NSObject, UIApplicationDelegate {
+    /*
+     Purpose:
+     Receives the APNs device token from iOS and forwards it to Firebase Messaging.
+    */
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
@@ -137,6 +193,10 @@ final class TeenDriveAppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 
+    /*
+     Purpose:
+     Publishes a phone-unlocked signal when protected data becomes available after device unlock.
+    */
     func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
         NotificationCenter.default.post(name: .teenDriveProtectedDataDidBecomeAvailable, object: nil)
     }

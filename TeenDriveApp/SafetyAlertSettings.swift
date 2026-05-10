@@ -1,3 +1,14 @@
+/*
+ File: SafetyAlertSettings.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Stores configurable safety alert toggles, fallback speed limits, and saved places in UserDefaults.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import Foundation
 
 struct SavedPlace: Codable, Hashable, Identifiable {
@@ -6,6 +17,10 @@ struct SavedPlace: Codable, Hashable, Identifiable {
     var latitude: Double
     var longitude: Double
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init(id: UUID = UUID(), name: String, latitude: Double, longitude: Double) {
         self.id = id
         self.name = name
@@ -56,6 +71,10 @@ final class SafetyAlertSettings: ObservableObject {
         didSet { savePlaces() }
     }
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init() {
         let defaults = UserDefaults.standard
         speedAlertsEnabled = defaults.object(forKey: Keys.speedAlertsEnabled) as? Bool ?? true
@@ -76,6 +95,10 @@ final class SafetyAlertSettings: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Adds or replaces a named saved place using the latest captured route point.
+    */
     func savePlace(named name: String, point: RoutePoint) {
         let place = SavedPlace(name: name, latitude: point.latitude, longitude: point.longitude)
         savedPlaces.removeAll { $0.name == name }
@@ -83,10 +106,18 @@ final class SafetyAlertSettings: ObservableObject {
         savedPlaces.sort { $0.name < $1.name }
     }
 
+    /*
+     Purpose:
+     Deletes saved places selected from the settings list.
+    */
     func deletePlaces(at offsets: IndexSet) {
         savedPlaces.remove(atOffsets: offsets)
     }
 
+    /*
+     Purpose:
+     Persists saved places to UserDefaults as JSON.
+    */
     private func savePlaces() {
         guard let data = try? JSONEncoder().encode(savedPlaces) else { return }
         UserDefaults.standard.set(data, forKey: Keys.savedPlaces)

@@ -1,3 +1,14 @@
+/*
+ File: SessionStore.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Loads, saves, merges, syncs, and listens for local trips, remote trip summaries, and active teen drives.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import FirebaseFirestore
 import Foundation
 
@@ -23,6 +34,10 @@ final class SessionStore: ObservableObject {
     private var activeDrivesBySource: [String: ActiveTeenDrive] = [:]
     private var listeners: [ListenerRegistration] = []
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init(fileURL: URL? = nil) {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         self.fileURL = fileURL ?? documentsURL.appendingPathComponent("teen-drive-trips.json")
@@ -31,10 +46,18 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Cleans up listeners or resources when this object is released.
+    */
     deinit {
         listeners.forEach { $0.remove() }
     }
 
+    /*
+     Purpose:
+     Attaches the current account store, starts remote listeners, and syncs local trips.
+    */
     func configure(accountStore: AccountStore) {
         self.accountStore = accountStore
         Task {
@@ -44,6 +67,10 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Adds a completed local trip, saves it, and schedules cloud sync.
+    */
     func add(_ session: TeenTrip) {
         localSessions.insert(session, at: 0)
         mergeSessions()
@@ -53,13 +80,22 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Removes selected local trips from saved history.
+    */
     func delete(at offsets: IndexSet) {
         localSessions.remove(atOffsets: offsets)
         mergeSessions()
         save()
     }
 
+    /*
+     Purpose:
+     Sets Firestore listeners for parent trip summaries and active teen drives.
+    */
     func bindRemoteTrips() {
+        // Parents listen to each connected teen; teens only sync their own local trips.
         removeListeners()
         guard let accountStore,
               let db = FirebaseBackend.shared.database else {
@@ -161,12 +197,20 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Attempts to upload all locally saved teen trips to Firestore.
+    */
     private func syncLocalTrips() async {
         for session in localSessions {
             await syncTrip(session)
         }
     }
 
+    /*
+     Purpose:
+     Uploads one completed teen trip document when cloud account IDs are available.
+    */
     private func syncTrip(_ session: TeenTrip) async {
         guard let accountStore,
               accountStore.role == .teen,
@@ -193,6 +237,10 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Loads local trip history from disk and merges it into the visible session list.
+    */
     private func load() async {
         let diskSessions = await Self.readSessions(from: fileURL)
         var byID = Dictionary(uniqueKeysWithValues: localSessions.map { ($0.id, $0) })
@@ -203,6 +251,10 @@ final class SessionStore: ObservableObject {
         mergeSessions()
     }
 
+    /*
+     Purpose:
+     Reads and decodes saved trips from the JSON trip history file.
+    */
     private static func readSessions(from fileURL: URL) async -> [TeenTrip] {
         await Task.detached(priority: .utility) {
             guard let data = try? Data(contentsOf: fileURL) else { return [] }
@@ -210,6 +262,10 @@ final class SessionStore: ObservableObject {
         }.value
     }
 
+    /*
+     Purpose:
+     Writes local trip history to disk on a background task.
+    */
     private func save() {
         do {
             let data = try JSONEncoder.sessionEncoder.encode(localSessions)
@@ -219,6 +275,10 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    /*
+     Purpose:
+     Combines local and remote trips into the arrays shown to teens and parents.
+    */
     private func mergeSessions() {
         let remoteSessions = remoteSessionsBySource.values.flatMap { $0 }
         let merged = (remoteSessions + localSessions).reduce(into: [UUID: TeenTrip]()) { result, session in
@@ -239,10 +299,18 @@ final class SessionStore: ObservableObject {
         .sorted { $0.trip.startedAt > $1.trip.startedAt }
     }
 
+    /*
+     Purpose:
+     Sorts active teen drive snapshots by most recent update for the parent dashboard.
+    */
     private func mergeActiveDrives() {
         activeTeenDrives = activeDrivesBySource.values.sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    /*
+     Purpose:
+     Detaches Firestore listeners to avoid stale updates and duplicate callbacks.
+    */
     private func removeListeners() {
         listeners.forEach { $0.remove() }
         listeners = []

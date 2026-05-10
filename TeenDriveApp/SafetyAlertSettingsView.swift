@@ -1,3 +1,14 @@
+/*
+ File: SafetyAlertSettingsView.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Presents the settings form for safety alert categories, drive status alerts, speed limits, and saved places.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import SwiftUI
 
 struct SafetyAlertSettingsView: View {

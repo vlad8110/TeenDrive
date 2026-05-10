@@ -1,3 +1,14 @@
+/*
+ File: ParentDashboardView.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Displays parent account status, active teen drives, live maps, safety alert pins, and completed trip history.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import MapKit
 import SwiftUI
 
@@ -69,6 +80,10 @@ struct ParentDashboardView: View {
         }
     }
 
+    /*
+     Purpose:
+     Builds a parent dashboard filter button for one teen or all teens.
+    */
     private func teenFilterButton(title: String, id: String) -> some View {
         Button {
             selectedTeenFilterID = id
@@ -223,6 +238,10 @@ private struct ActiveTeenDriveCard: View {
         .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
     }
 
+    /*
+     Purpose:
+     Formats a live or completed drive duration for display.
+    */
     private func durationText(now: Date) -> String {
         now.timeIntervalSince(drive.startedAt).durationText
     }

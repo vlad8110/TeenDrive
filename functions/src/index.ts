@@ -1,3 +1,15 @@
+/*
+ File: index.ts
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Runs a Firebase Cloud Function that sends parent push notifications when a teen device writes a safety alert event.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points
+ so a new programmer can trace the flow without reading the whole project first.
+*/
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
@@ -14,7 +26,12 @@ type NotificationEvent = {
   title?: string;
 };
 
+/*
+ Purpose:
+ Triggers when a teen alert event is created and sends push notifications to connected parents.
+*/
 export const sendTeenDriveAlert = onDocumentCreated("notificationEvents/{eventId}", async (event) => {
+  // Teen devices write notificationEvents; this function finds parent tokens and sends the push.
   const data = event.data?.data() as NotificationEvent | undefined;
   if (!data?.familyGroupID) {
     logger.info("Notification event skipped: missing familyGroupID", { eventId: event.params.eventId });

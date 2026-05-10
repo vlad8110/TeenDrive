@@ -1,3 +1,14 @@
+/*
+ File: SessionHistoryView.swift
+ Created: 2026-05-08
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Shows saved trips, trip details, route maps, safety alerts, and score breakdowns.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import MapKit
 import SwiftUI
 
@@ -121,6 +132,10 @@ struct SessionDetailView: View {
     let session: TeenTrip
     @State private var position: MapCameraPosition
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init(session: TeenTrip) {
         self.session = session
         _position = State(initialValue: .region(session.mapRegion))

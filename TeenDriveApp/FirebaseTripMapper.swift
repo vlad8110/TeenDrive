@@ -1,3 +1,14 @@
+/*
+ File: FirebaseTripMapper.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Converts local route, alert, and trip models to and from Firestore dictionaries.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import FirebaseFirestore
 import Foundation
 
@@ -11,6 +22,10 @@ extension RoutePoint {
         ]
     }
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init?(firestoreData data: [String: Any]) {
         guard let latitude = data["latitude"] as? Double,
               let longitude = data["longitude"] as? Double else { return nil }
@@ -33,6 +48,10 @@ extension SpeedAlert {
         ]
     }
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init?(firestoreData data: [String: Any]) {
         guard let speedMetersPerSecond = data["speedMetersPerSecond"] as? Double,
               let latitude = data["latitude"] as? Double,
@@ -59,6 +78,10 @@ extension SafetyAlert {
         ]
     }
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init?(firestoreData data: [String: Any]) {
         guard let kindValue = data["kind"] as? String,
               let kind = SafetyAlertKind(rawValue: kindValue) else { return nil }
@@ -74,6 +97,10 @@ extension SafetyAlert {
 }
 
 extension TeenTrip {
+    /*
+     Purpose:
+     Builds a Firestore dictionary representation of this model.
+    */
     func firestoreData(teenID: String, familyGroupID: String) -> [String: Any] {
         [
             "id": id.uuidString,
@@ -92,10 +119,18 @@ extension TeenTrip {
         ]
     }
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init?(document: QueryDocumentSnapshot) {
         self.init(firestoreID: document.documentID, data: document.data())
     }
 
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init?(firestoreID: String, data: [String: Any]) {
         guard let startedAt = (data["startedAt"] as? Timestamp)?.dateValue(),
               let endedAt = (data["endedAt"] as? Timestamp)?.dateValue(),

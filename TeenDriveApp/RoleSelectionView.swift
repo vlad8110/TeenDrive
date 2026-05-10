@@ -1,3 +1,14 @@
+/*
+ File: RoleSelectionView.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Shows the first-run choice between teen mode and parent mode.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import SwiftUI
 
 struct RoleSelectionView: View {

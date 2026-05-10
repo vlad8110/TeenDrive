@@ -1,3 +1,14 @@
+/*
+ File: RoadSpeedLimitProvider.swift
+ Created: 2026-05-10
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Queries OpenStreetMap Overpass for nearby road speed limits and caches results for live speed alerts.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import Foundation
 
 struct RoadSpeedLimitLookup: Equatable, Sendable {
@@ -14,7 +25,12 @@ actor RoadSpeedLimitProvider {
     private let cacheTTL: TimeInterval = 75
     private var lastLookup: CachedLookup?
 
+    /*
+     Purpose:
+     Returns a cached or newly fetched road speed limit near the provided coordinate.
+    */
     func lookup(latitude: Double, longitude: Double) async -> RoadSpeedLimitLookup {
+        // Road-limit lookups are throttled and cached so location updates do not spam Overpass.
         let now = Date()
         if let cached = lastLookup {
             let distance = Self.distanceMeters(
@@ -37,6 +53,10 @@ actor RoadSpeedLimitProvider {
         return result
     }
 
+    /*
+     Purpose:
+     Calls the Overpass API and decodes nearby mapped roads with speed-limit tags.
+    */
     private func fetchSpeedLimit(latitude: Double, longitude: Double) async -> RoadSpeedLimitLookup {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -64,6 +84,10 @@ actor RoadSpeedLimitProvider {
         }
     }
 
+    /*
+     Purpose:
+     Chooses the closest driveable road speed limit from the Overpass response.
+    */
     private static func bestLimit(from elements: [OverpassElement], latitude: Double, longitude: Double) -> RoadSpeedLimitLookup {
         let candidates = elements.compactMap { element -> Candidate? in
             guard let tags = element.tags,
@@ -88,7 +112,12 @@ actor RoadSpeedLimitProvider {
         return RoadSpeedLimitLookup(limitMPH: best.limitMPH, roadName: best.roadName, sourceDescription: source)
     }
 
+    /*
+     Purpose:
+     Converts an OpenStreetMap maxspeed string into miles per hour.
+    */
     private static func parseMaxspeed(_ value: String) -> Double? {
+        // OSM maxspeed values may include units, or in the US they may be plain mph numbers.
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercased = trimmed.lowercased()
         guard !lowercased.isEmpty,
@@ -117,6 +146,10 @@ actor RoadSpeedLimitProvider {
         return value * 0.621371
     }
 
+    /*
+     Purpose:
+     Filters Overpass road candidates down to roads that should be usable by cars.
+    */
     private static func isLikelyDriveableRoad(_ tags: [String: String]) -> Bool {
         guard let highway = tags["highway"] else { return false }
         let driveableHighways: Set<String> = [
@@ -143,6 +176,10 @@ actor RoadSpeedLimitProvider {
         return true
     }
 
+    /*
+     Purpose:
+     Finds how close the current GPS coordinate is to a road geometry.
+    */
     private static func distanceFromPoint(latitude: Double, longitude: Double, to geometry: [OverpassGeometryPoint]?) -> Double {
         guard let geometry, geometry.count > 1 else { return .greatestFiniteMagnitude }
         let projectedPoints = geometry.map { project(latitude: $0.lat, longitude: $0.lon, originLatitude: latitude, originLongitude: longitude) }
@@ -157,6 +194,10 @@ actor RoadSpeedLimitProvider {
         return best
     }
 
+    /*
+     Purpose:
+     Computes the shortest projected distance from the current point to one road segment.
+    */
     private static func distanceFromOrigin(toSegmentStart start: ProjectedPoint, end: ProjectedPoint) -> Double {
         let dx = end.x - start.x
         let dy = end.y - start.y
@@ -171,6 +212,10 @@ actor RoadSpeedLimitProvider {
         return hypot(closestX, closestY)
     }
 
+    /*
+     Purpose:
+     Projects latitude and longitude into local meters for simple distance math.
+    */
     private static func project(latitude: Double, longitude: Double, originLatitude: Double, originLongitude: Double) -> ProjectedPoint {
         let earthRadiusMeters = 6_371_000.0
         let originLatitudeRadians = originLatitude * .pi / 180
@@ -179,6 +224,10 @@ actor RoadSpeedLimitProvider {
         return ProjectedPoint(x: x, y: y)
     }
 
+    /*
+     Purpose:
+     Calculates the approximate great-circle distance between two coordinates.
+    */
     private static func distanceMeters(
         fromLatitude latitude: Double,
         longitude: Double,
@@ -195,6 +244,10 @@ actor RoadSpeedLimitProvider {
         return 2 * earthRadiusMeters * atan2(sqrt(a), sqrt(1 - a))
     }
 
+    /*
+     Purpose:
+     Encodes an Overpass query so it can be sent as POST form data.
+    */
     private static func formEncoded(_ string: String) -> String {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&+=?")

@@ -1,3 +1,14 @@
+/*
+ File: PairingQRCodeView.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Creates a crisp QR code image from the teen pairing payload so a parent can scan it.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
@@ -18,6 +29,7 @@ struct PairingQRCodeView: View {
     }
 
     private var qrImage: UIImage {
+        // Generate a high-resolution QR image so it remains crisp when scaled in SwiftUI.
         filter.message = Data(payload.utf8)
         filter.correctionLevel = "M"
 

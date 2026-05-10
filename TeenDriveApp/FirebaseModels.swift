@@ -1,6 +1,18 @@
+/*
+ File: FirebaseModels.swift
+ Created: 2026-05-09
+ Creator: Vladimyr Merci
+
+ Purpose:
+ Defines Firestore-facing family, profile, and active-drive models used by cloud sync and parent live dashboards.
+
+ Developer Notes:
+ This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
+*/
 import FirebaseFirestore
 import Foundation
 
+// A family group connects parent profiles to teen profiles.
 struct FamilyGroup: Codable, Hashable, Identifiable {
     var id: String
     var parentIDs: [String]
@@ -95,6 +107,10 @@ extension ParentProfile {
 }
 
 extension ActiveTeenDrive {
+    /*
+     Purpose:
+     Initializes this type with the state or dependencies needed before it is used.
+    */
     init?(document: DocumentSnapshot, teen: ConnectedTeen) {
         guard let data = document.data(),
               data["isActive"] as? Bool == true else {
