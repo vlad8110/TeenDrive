@@ -66,6 +66,7 @@ struct RoleSelectionView: View {
             .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(24)
-        .background(Color(.systemGroupedBackground))
+        .background(GlassAppBackground())
+        .environment(\.colorScheme, .dark)
     }
 }

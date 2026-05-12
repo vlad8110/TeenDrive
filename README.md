@@ -7,6 +7,7 @@ Teen Drive is an iOS SwiftUI teen driving tracker for families. It records trips
 - Teen and Parent modes selected on first launch.
 - Teen mode can work locally before pairing.
 - Parent mode can connect to multiple teens by scanning a QR code.
+- Pairing QR codes include short-lived cloud tokens so parent linking must be verified by Firestore rules.
 - Live drive tracking with current speed, top speed, distance, route, and tracking status.
 - Automatic trip start when speed passes 5 mph.
 - Automatic trip stop after 5 minutes with no movement.
@@ -75,6 +76,7 @@ Firebase is used for:
 - Anonymous Firebase Auth accounts.
 - Family group records.
 - Teen and parent profile records.
+- Short-lived pairing tokens for QR-based parent connection.
 - Completed trip sync.
 - Active-drive sync for the parent live dashboard.
 - Safety alert notification events.

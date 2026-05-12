@@ -60,6 +60,14 @@ struct ConnectedParent: Codable, Hashable, Identifiable {
     var displayName: String
 }
 
+private struct PairingPayload {
+    let code: String
+    let token: String
+    let teenName: String
+    let teenProfileID: String
+    let familyGroupID: String
+}
+
 enum AccountCloudSyncState: Equatable {
     case idle
     case syncing
@@ -106,6 +114,10 @@ final class AccountStore: ObservableObject {
 
     @Published private(set) var pairingCode: String {
         didSet { UserDefaults.standard.set(pairingCode, forKey: Keys.pairingCode) }
+    }
+
+    @Published private(set) var pairingToken: String {
+        didSet { UserDefaults.standard.set(pairingToken, forKey: Keys.pairingToken) }
     }
 
     @Published private(set) var connectedParentName: String {
@@ -156,6 +168,7 @@ final class AccountStore: ObservableObject {
         role = AccountRole(rawValue: roleValue) ?? .teen
         displayName = defaults.string(forKey: Keys.displayName) ?? ""
         pairingCode = defaults.string(forKey: Keys.pairingCode) ?? AccountStore.makePairingCode()
+        pairingToken = defaults.string(forKey: Keys.pairingToken) ?? AccountStore.makePairingToken()
         let storedParentName = defaults.string(forKey: Keys.connectedParentName) ?? ""
         let storedParentID = defaults.string(forKey: Keys.connectedParentID) ?? ""
         connectedParentName = storedParentName
@@ -232,6 +245,7 @@ final class AccountStore: ObservableObject {
         components.host = "pair"
         components.queryItems = [
             URLQueryItem(name: "code", value: pairingCode),
+            URLQueryItem(name: "token", value: pairingToken),
             URLQueryItem(name: "teen", value: teenName),
             URLQueryItem(name: "teenID", value: teenProfileID),
             URLQueryItem(name: "familyGroupID", value: familyGroupID)
@@ -257,6 +271,10 @@ final class AccountStore: ObservableObject {
     */
     func regeneratePairingCode() {
         pairingCode = AccountStore.makePairingCode()
+        pairingToken = AccountStore.makePairingToken()
+        Task {
+            await syncAccount()
+        }
     }
 
     /*
@@ -269,9 +287,15 @@ final class AccountStore: ObservableObject {
             firebaseStatus = "Teen QR is not cloud-ready. Open Account on the teen phone while online, then scan the new QR."
             return false
         }
+        guard !pairing.token.isEmpty else {
+            firebaseStatus = "Teen QR is expired. Generate a new QR code on the teen phone."
+            return false
+        }
         let parentName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         displayName = parentName
         connectedTeenCode = pairing.code
+
+        guard await claimPairingToken(pairing: pairing) else { return false }
 
         let connectedTeen = ConnectedTeen(
             name: pairing.teenName.isEmpty ? "Teen \(connectedTeens.count + 1)" : pairing.teenName,
@@ -314,6 +338,14 @@ final class AccountStore: ObservableObject {
     */
     private static func makePairingCode() -> String {
         String((0..<6).map { _ in String(Int.random(in: 0...9)) }.joined())
+    }
+
+    /*
+     Purpose:
+     Generates a hard-to-guess pairing token embedded in the QR code for cloud authorization.
+    */
+    private static func makePairingToken() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
     /*
@@ -366,6 +398,7 @@ final class AccountStore: ObservableObject {
             ]
             try await db.collection("teenProfiles").document(profileID).setData(profileData, merge: true)
             try await db.collection("familyGroups").document(groupID).collection("teens").document(profileID).setData(profileData, merge: true)
+            try await publishPairingToken(db: db, familyGroupID: groupID, teenProfileID: profileID, teenName: name)
 
             teenProfileID = profileID
             familyGroupID = groupID
@@ -417,7 +450,7 @@ final class AccountStore: ObservableObject {
      Writes the parent-to-teen relationship into the teen profile, parent profile, and family group documents.
     */
     private func connectParentInFirestore(
-        pairing: (code: String, teenName: String, teenProfileID: String, familyGroupID: String),
+        pairing: PairingPayload,
         parentName: String
     ) async {
         guard let db = FirebaseBackend.shared.database,
@@ -438,6 +471,7 @@ final class AccountStore: ObservableObject {
             try await familyRef.setData([
                 "parentIDs": FieldValue.arrayUnion([parentProfileID]),
                 "teenIDs": FieldValue.arrayUnion([pairing.teenProfileID]),
+                "lastPairingToken": pairing.token,
                 "updatedAt": FieldValue.serverTimestamp()
             ], merge: true)
 
@@ -464,6 +498,81 @@ final class AccountStore: ObservableObject {
         } catch {
             firebaseStatus = "Could not connect teen: \((error as NSError).localizedDescription)"
             cloudSyncState = .failed(firebaseStatus)
+        }
+    }
+
+    /*
+     Purpose:
+     Publishes a short-lived pairing token so Firestore rules can verify parent linking.
+    */
+    private func publishPairingToken(db: Firestore, familyGroupID: String, teenProfileID: String, teenName: String) async throws {
+        let expiresAt = Date().addingTimeInterval(30 * 60)
+        try await db.collection("familyGroups")
+            .document(familyGroupID)
+            .collection("pairingTokens")
+            .document(pairingToken)
+            .setData([
+                "code": pairingCode,
+                "teenID": teenProfileID,
+                "teenName": teenName,
+                "familyGroupID": familyGroupID,
+                "createdByTeenID": teenProfileID,
+                "createdAt": FieldValue.serverTimestamp(),
+                "expiresAt": Timestamp(date: expiresAt),
+                "usedByParentID": NSNull()
+            ], merge: true)
+    }
+
+    /*
+     Purpose:
+     Claims the teen's QR pairing token before writing parent-to-teen relationship records.
+    */
+    private func claimPairingToken(pairing: PairingPayload) async -> Bool {
+        guard let db = FirebaseBackend.shared.database,
+              let userID = await FirebaseBackend.shared.signInIfNeeded() else {
+            firebaseStatus = FirebaseBackend.shared.statusMessage
+            cloudSyncState = .blocked(FirebaseBackend.shared.statusMessage)
+            return false
+        }
+
+        parentProfileID = parentProfileID.isEmpty ? userID : parentProfileID
+        let tokenRef = db.collection("familyGroups")
+            .document(pairing.familyGroupID)
+            .collection("pairingTokens")
+            .document(pairing.token)
+
+        do {
+            let tokenDocument = try await tokenRef.getDocument()
+            guard let data = tokenDocument.data(),
+                  data["teenID"] as? String == pairing.teenProfileID,
+                  data["familyGroupID"] as? String == pairing.familyGroupID else {
+                firebaseStatus = "Teen QR is no longer valid."
+                cloudSyncState = .failed(firebaseStatus)
+                return false
+            }
+
+            if let usedByParentID = data["usedByParentID"] as? String, !usedByParentID.isEmpty, usedByParentID != parentProfileID {
+                firebaseStatus = "Teen QR was already used. Generate a new QR code."
+                cloudSyncState = .failed(firebaseStatus)
+                return false
+            }
+
+            guard let expiresAt = data["expiresAt"] as? Timestamp,
+                  expiresAt.dateValue() > Date() else {
+                firebaseStatus = "Teen QR expired. Generate a new QR code."
+                cloudSyncState = .failed(firebaseStatus)
+                return false
+            }
+
+            try await tokenRef.setData([
+                "usedByParentID": parentProfileID,
+                "usedAt": FieldValue.serverTimestamp()
+            ], merge: true)
+            return true
+        } catch {
+            firebaseStatus = "Could not verify teen QR: \((error as NSError).localizedDescription)"
+            cloudSyncState = .failed(firebaseStatus)
+            return false
         }
     }
 
@@ -567,20 +676,21 @@ final class AccountStore: ObservableObject {
      Purpose:
      Parses and validates the text stored inside a Teen Drive pairing QR code.
     */
-    private static func pairing(from payload: String) -> (code: String, teenName: String, teenProfileID: String, familyGroupID: String)? {
+    private static func pairing(from payload: String) -> PairingPayload? {
         if let components = URLComponents(string: payload),
            components.scheme == "teendrive",
            components.host == "pair",
            let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
            !code.isEmpty {
+            let token = components.queryItems?.first(where: { $0.name == "token" })?.value ?? ""
             let teenName = components.queryItems?.first(where: { $0.name == "teen" })?.value ?? ""
             let teenProfileID = components.queryItems?.first(where: { $0.name == "teenID" })?.value ?? ""
             let familyGroupID = components.queryItems?.first(where: { $0.name == "familyGroupID" })?.value ?? ""
-            return (code.uppercased(), teenName, teenProfileID, familyGroupID)
+            return PairingPayload(code: code.uppercased(), token: token, teenName: teenName, teenProfileID: teenProfileID, familyGroupID: familyGroupID)
         }
 
         let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : (trimmed.uppercased(), "", "", "")
+        return trimmed.isEmpty ? nil : PairingPayload(code: trimmed.uppercased(), token: "", teenName: "", teenProfileID: "", familyGroupID: "")
     }
 
     /*
@@ -607,6 +717,7 @@ private enum Keys {
     static let role = "account.role"
     static let displayName = "account.displayName"
     static let pairingCode = "account.pairingCode"
+    static let pairingToken = "account.pairingToken"
     static let connectedParentName = "account.connectedParentName"
     static let connectedParentID = "account.connectedParentID"
     static let connectedParents = "account.connectedParents"

@@ -40,6 +40,9 @@ struct SessionHistoryView: View {
             }
         }
         .navigationTitle("Trip History")
+        .scrollContentBackground(.hidden)
+        .background(GlassAppBackground())
+        .environment(\.colorScheme, .dark)
     }
 
     private var teenHistoryBody: some View {
@@ -67,8 +70,7 @@ struct SessionHistoryView: View {
                             .foregroundStyle(.white.opacity(0.62))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                    .teenGlassCard()
                 } else {
                     List {
                         ForEach(store.sessions) { session in
@@ -77,8 +79,7 @@ struct SessionHistoryView: View {
                             } label: {
                                 SessionRow(session: session)
                                     .padding(12)
-                                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                                    .teenGlassCard()
                             }
                             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                             .listRowSeparator(.hidden)
@@ -94,9 +95,9 @@ struct SessionHistoryView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.horizontal, compact ? 14 : 18)
             .padding(.top, compact ? 22 : 34)
-            .padding(.bottom, 4)
+            .padding(.bottom, compact ? 16 : 20)
         }
-        .background(Color.black)
+        .background(GlassAppBackground())
         .toolbar(.hidden, for: .navigationBar)
     }
 }
@@ -208,10 +209,17 @@ struct SessionDetailView: View {
                 }
             }
             .padding(16)
-            .background(Color(.systemGroupedBackground))
+            .background(.ultraThinMaterial)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.14))
+                    .frame(height: 1)
+            }
         }
         .navigationTitle("Trip Route")
         .navigationBarTitleDisplayMode(.inline)
+        .background(GlassAppBackground())
+        .environment(\.colorScheme, .dark)
     }
 }
 

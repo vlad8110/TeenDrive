@@ -14,64 +14,111 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == parentID;
     }
 
+    function familyPath(familyGroupID) {
+      return /databases/$(database)/documents/familyGroups/$(familyGroupID);
+    }
+
+    function isFamilyTeen(familyGroupID) {
+      return signedIn() &&
+        request.auth.uid in get(familyPath(familyGroupID)).data.teenIDs;
+    }
+
+    function isFamilyParent(familyGroupID) {
+      return signedIn() &&
+        request.auth.uid in get(familyPath(familyGroupID)).data.parentIDs;
+    }
+
+    function isFamilyMember(familyGroupID) {
+      return isFamilyTeen(familyGroupID) || isFamilyParent(familyGroupID);
+    }
+
+    function claimedPairingToken(familyGroupID) {
+      return signedIn() &&
+        request.resource.data.lastPairingToken is string &&
+        get(/databases/$(database)/documents/familyGroups/$(familyGroupID)/pairingTokens/$(request.resource.data.lastPairingToken)).data.usedByParentID == request.auth.uid &&
+        get(/databases/$(database)/documents/familyGroups/$(familyGroupID)/pairingTokens/$(request.resource.data.lastPairingToken)).data.expiresAt > request.time;
+    }
+
     match /familyGroups/{familyGroupID} {
-      allow read: if signedIn() && (
-        request.auth.uid in resource.data.parentIDs ||
-        request.auth.uid in resource.data.teenIDs
-      );
-      allow create: if signedIn() && request.auth.uid in request.resource.data.teenIDs;
-      allow update: if signedIn() && (
-        request.auth.uid in resource.data.parentIDs ||
-        request.auth.uid in resource.data.teenIDs ||
-        request.auth.uid in request.resource.data.parentIDs
-      );
+      allow read: if isFamilyMember(familyGroupID);
+      allow create: if signedIn() &&
+        request.auth.uid in request.resource.data.teenIDs &&
+        (!("parentIDs" in request.resource.data) || request.resource.data.parentIDs.size() == 0);
+      allow update: if isFamilyMember(familyGroupID) || claimedPairingToken(familyGroupID);
+      allow delete: if false;
+
+      match /pairingTokens/{tokenID} {
+        allow read: if signedIn() &&
+          resource.data.expiresAt > request.time &&
+          (!("usedByParentID" in resource.data) || resource.data.usedByParentID == null || resource.data.usedByParentID == request.auth.uid);
+        allow create: if signedIn() &&
+          request.resource.data.createdByTeenID == request.auth.uid &&
+          request.resource.data.teenID == request.auth.uid &&
+          request.resource.data.familyGroupID == familyGroupID &&
+          request.resource.data.expiresAt > request.time;
+        allow update: if signedIn() &&
+          resource.data.familyGroupID == familyGroupID &&
+          resource.data.expiresAt > request.time &&
+          (!("usedByParentID" in resource.data) || resource.data.usedByParentID == null || resource.data.usedByParentID == request.auth.uid) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(["usedByParentID", "usedAt"]) &&
+          request.resource.data.usedByParentID == request.auth.uid;
+        allow delete: if false;
+      }
 
       match /teens/{teenID} {
-        allow read: if ownsTeen(teenID) ||
-          request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
+        allow read: if ownsTeen(teenID) || isFamilyParent(familyGroupID);
         allow create: if ownsTeen(teenID) || (
-          request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs &&
+          isFamilyParent(familyGroupID) &&
           request.resource.data.keys().hasOnly(["connectedParentIDs", "updatedAt"])
         );
         allow update: if ownsTeen(teenID) || (
-          request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs &&
+          isFamilyParent(familyGroupID) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(["connectedParentIDs", "updatedAt"])
         );
         allow delete: if false;
 
         match /trips/{tripID} {
-          allow read: if ownsTeen(teenID) ||
-            request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
-          allow write: if ownsTeen(teenID);
-          allow delete: if ownsTeen(teenID) ||
-            request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
+          allow read: if ownsTeen(teenID) || isFamilyParent(familyGroupID);
+          allow create, update: if ownsTeen(teenID) &&
+            request.resource.data.teenID == teenID &&
+            request.resource.data.familyGroupID == familyGroupID;
+          allow delete: if ownsTeen(teenID) || isFamilyParent(familyGroupID);
         }
 
         match /activeDrive/{driveID} {
-          allow read: if ownsTeen(teenID) ||
-            request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(familyGroupID)).data.parentIDs;
-          allow write: if ownsTeen(teenID);
+          allow read: if ownsTeen(teenID) || isFamilyParent(familyGroupID);
+          allow create, update: if ownsTeen(teenID) &&
+            request.resource.data.teenID == teenID &&
+            request.resource.data.familyGroupID == familyGroupID;
+          allow delete: if false;
         }
       }
     }
 
     match /teenProfiles/{teenID} {
-      allow read: if signedIn();
-      allow create: if ownsTeen(teenID);
+      allow read: if ownsTeen(teenID) ||
+        request.auth.uid in resource.data.connectedParentIDs ||
+        isFamilyParent(resource.data.familyGroupID);
+      allow create: if ownsTeen(teenID) &&
+        request.resource.data.familyGroupID is string;
       allow update: if ownsTeen(teenID) ||
-        request.auth.uid in get(/databases/$(database)/documents/familyGroups/$(resource.data.familyGroupID)).data.parentIDs;
+        isFamilyParent(resource.data.familyGroupID);
       allow delete: if false;
     }
 
     match /parentProfiles/{parentID} {
-      allow read: if signedIn();
-      allow write: if ownsParent(parentID);
+      allow read: if ownsParent(parentID) ||
+        request.auth.uid in resource.data.connectedTeenIDs;
+      allow create, update: if ownsParent(parentID);
+      allow delete: if false;
     }
 
     match /notificationEvents/{eventID} {
-      allow create: if signedIn() && request.resource.data.teenID == request.auth.uid;
-      allow read: if signedIn();
-      allow update, delete: if false;
+      allow create: if signedIn() &&
+        request.resource.data.teenID == request.auth.uid &&
+        request.resource.data.familyGroupID is string &&
+        request.auth.uid in get(familyPath(request.resource.data.familyGroupID)).data.teenIDs;
+      allow read, update, delete: if false;
     }
   }
 }

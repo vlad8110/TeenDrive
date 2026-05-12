@@ -67,7 +67,8 @@ struct AccountSettingsView: View {
 
     private var standardProfileBody: some View {
         profileContent
-            .background(Color(.systemGroupedBackground))
+            .background(GlassAppBackground())
+            .environment(\.colorScheme, .dark)
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
     }
@@ -91,9 +92,9 @@ struct AccountSettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.horizontal, compact ? 14 : 18)
             .padding(.top, compact ? 22 : 34)
-            .padding(.bottom, 4)
+            .padding(.bottom, compact ? 16 : 20)
         }
-        .background(Color.black)
+        .background(GlassAppBackground())
         .environment(\.colorScheme, .dark)
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -118,7 +119,7 @@ struct AccountSettingsView: View {
                 }
             }
             .padding(12)
-            .padding(.bottom, 12)
+            .padding(.bottom, 24)
         }
     }
 
@@ -150,7 +151,7 @@ struct AccountSettingsView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(12)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+        .teenGlassCard()
     }
 
     private var syncCard: some View {
@@ -177,7 +178,7 @@ struct AccountSettingsView: View {
             }
         }
         .padding(12)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .teenGlassCard()
     }
 
     private var profileCard: some View {
@@ -190,7 +191,7 @@ struct AccountSettingsView: View {
                 .textFieldStyle(.roundedBorder)
         }
         .padding(12)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .teenGlassCard()
     }
 
     private var teenPairingCard: some View {
@@ -242,7 +243,7 @@ struct AccountSettingsView: View {
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
-                        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                        .teenGlassControl()
                     }
                 }
             }
@@ -257,7 +258,7 @@ struct AccountSettingsView: View {
             .controlSize(.small)
         }
         .padding(12)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .teenGlassCard()
     }
 
     private var parentPairingCard: some View {
@@ -304,7 +305,7 @@ struct AccountSettingsView: View {
             }
         }
         .padding(16)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .teenGlassCard()
     }
 
     private var disconnectCard: some View {
@@ -316,7 +317,7 @@ struct AccountSettingsView: View {
         }
         .buttonStyle(.bordered)
         .padding(16)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .teenGlassCard()
     }
 
     private var pairingBadge: some View {
@@ -379,6 +380,6 @@ struct AccountSettingsView: View {
                 .foregroundStyle(teen.teenProfileID.isEmpty ? .orange : .green)
         }
         .padding(12)
-        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10))
+        .teenGlassControl()
     }
 }

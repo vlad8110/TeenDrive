@@ -61,7 +61,8 @@ struct ParentDashboardView: View {
             }
             .padding(16)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(GlassAppBackground())
+        .environment(\.colorScheme, .dark)
         .navigationTitle("Parent")
     }
 
@@ -93,7 +94,8 @@ struct ParentDashboardView: View {
                 .foregroundStyle(selectedTeenFilterID == id ? .white : .green)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(selectedTeenFilterID == id ? Color.green : Color(.secondarySystemGroupedBackground), in: Capsule())
+                .background(selectedTeenFilterID == id ? Color.green.gradient : Color.clear.gradient, in: Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(selectedTeenFilterID == id ? 0.18 : 0.2), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -125,7 +127,7 @@ struct ParentDashboardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .teenGlassCard()
     }
 
     @ViewBuilder
@@ -153,7 +155,7 @@ struct ParentDashboardView: View {
             }
         }
         .padding(16)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .teenGlassCard()
     }
 }
 
@@ -198,7 +200,7 @@ private struct ParentTripCard: View {
             SafetyAlertStrip(session: session)
         }
         .padding(14)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .teenGlassCard()
     }
 }
 
@@ -235,7 +237,7 @@ private struct ActiveTeenDriveCard: View {
             }
         }
         .padding(12)
-        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .teenGlassControl()
     }
 
     /*

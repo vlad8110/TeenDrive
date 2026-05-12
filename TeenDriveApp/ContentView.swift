@@ -112,7 +112,7 @@ struct ContentView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
         }
-        .background(Color.black)
+        .background(GlassAppBackground())
         .ignoresSafeArea(.container, edges: .bottom)
     }
 
@@ -139,6 +139,8 @@ struct ContentView: View {
                 Label("Account", systemImage: "person.crop.circle")
             }
         }
+        .tint(.green)
+        .background(GlassAppBackground())
     }
 
     private var teenDriveView: some View {
@@ -225,9 +227,30 @@ private struct TeenTabBar: View {
                     .background {
                         if selectedTab == tab {
                             Capsule()
-                                .fill(Color.white.opacity(0.14))
+                                .fill(.ultraThinMaterial)
+                                .overlay {
+                                    Capsule()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [
+                                                    Color.white.opacity(0.24),
+                                                    Color.green.opacity(0.1),
+                                                    Color.white.opacity(0.05)
+                                                ],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                        .allowsHitTesting(false)
+                                }
+                                .overlay {
+                                    Capsule()
+                                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                                        .allowsHitTesting(false)
+                                }
                                 .padding(.vertical, 6)
                                 .padding(.horizontal, 4)
+                                .shadow(color: Color.green.opacity(0.16), radius: 10, y: 4)
                         }
                     }
                 }
@@ -235,12 +258,40 @@ private struct TeenTabBar: View {
             }
         }
         .padding(6)
-        .background(.ultraThinMaterial, in: Capsule())
+        .background(.regularMaterial, in: Capsule())
+        .background {
+            Capsule()
+                .fill(Color.white.opacity(0.04))
+                .blur(radius: 8)
+        }
         .overlay(
             Capsule()
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.28),
+                            Color.white.opacity(0.08),
+                            Color.black.opacity(0.12)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .allowsHitTesting(false)
         )
-        .shadow(color: .black.opacity(0.38), radius: 18, y: 8)
+        .overlay(
+            Capsule()
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.42), Color.white.opacity(0.1)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: .black.opacity(0.48), radius: 28, y: 12)
+        .shadow(color: .white.opacity(0.08), radius: 1, y: -1)
     }
 }
 
@@ -285,8 +336,9 @@ struct TeenHeaderCircleIcon: View {
             .font((compact ? Font.title3 : .title2).weight(.medium))
             .foregroundStyle(color)
             .frame(width: compact ? 42 : 48, height: compact ? 42 : 48)
-            .background(Color.white.opacity(0.1), in: Circle())
-            .overlay(Circle().stroke(Color.white.opacity(0.14), lineWidth: 1))
+            .background(.ultraThinMaterial, in: Circle())
+            .overlay(Circle().fill(Color.white.opacity(0.08)))
+            .overlay(Circle().stroke(Color.white.opacity(0.22), lineWidth: 1))
             .overlay(alignment: .topTrailing) {
                 if showsBadge {
                     Circle()
@@ -386,7 +438,7 @@ private struct TeenDriveDashboardView<Settings: View>: View {
                 driveContent(duration: durationText())
             }
         }
-        .background(Color.black)
+        .background(GlassAppBackground())
     }
 
     /*
@@ -397,8 +449,8 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         GeometryReader { proxy in
             let compact = proxy.size.height < 760
             let topPadding = driveTopPadding(compact: compact)
-            let bottomPadding = compact ? CGFloat(2) : CGFloat(4)
-            let spacing = compact ? CGFloat(6) : CGFloat(8)
+            let bottomPadding = compact ? CGFloat(16) : CGFloat(20)
+            let spacing = compact ? CGFloat(9) : CGFloat(11)
             let mapHeight = driveMapHeight(
                 containerHeight: proxy.size.height,
                 compact: compact,
@@ -443,7 +495,8 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         let metricsHeight: CGFloat = compact ? 82 : 92
         let driveButtonHeight: CGFloat = compact ? 50 : 56
         let permissionButtonHeight: CGFloat = showsLocationPermissionAction ? (compact ? 48 : 54) + (compact ? 8 : 10) : 0
-        let reservedHeight = topPadding + bottomPadding + headerHeight + metricsHeight + driveButtonHeight + permissionButtonHeight + spacing * 3
+        let actionAreaPadding: CGFloat = compact ? 10 : 12
+        let reservedHeight = topPadding + bottomPadding + headerHeight + metricsHeight + driveButtonHeight + permissionButtonHeight + actionAreaPadding + spacing * 3
         let availableHeight = containerHeight - reservedHeight
         let minimumMapHeight: CGFloat = compact ? 260 : 300
         return max(minimumMapHeight, availableHeight)
@@ -486,9 +539,13 @@ private struct TeenDriveDashboardView<Settings: View>: View {
             .frame(height: mapHeight)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay {
-                Color.green.opacity(0.06)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .allowsHitTesting(false)
+                LinearGradient(
+                    colors: [Color.green.opacity(0.12), Color.white.opacity(0.04), Color.clear],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .allowsHitTesting(false)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
@@ -511,7 +568,8 @@ private struct TeenDriveDashboardView<Settings: View>: View {
                         .foregroundStyle(.white.opacity(0.68))
                 }
                 .frame(width: compact ? 76 : 84, height: compact ? 128 : 140)
-                .background(.black.opacity(0.68), in: RoundedRectangle(cornerRadius: 8))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.18), lineWidth: 1))
                 .padding(.leading, compact ? 14 : 18)
             }
             .overlay(alignment: .trailing) {
@@ -519,7 +577,8 @@ private struct TeenDriveDashboardView<Settings: View>: View {
                     Button(action: onCenterMap) {
                         Image(systemName: "location.fill")
                             .frame(width: compact ? 40 : 46, height: compact ? 40 : 46)
-                            .background(.black.opacity(0.7), in: Circle())
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
 
@@ -528,7 +587,8 @@ private struct TeenDriveDashboardView<Settings: View>: View {
                     } label: {
                         Image(systemName: "square.3.layers.3d.down.right")
                             .frame(width: compact ? 40 : 46, height: compact ? 40 : 46)
-                            .background(.black.opacity(0.7), in: Circle())
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
@@ -580,8 +640,7 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         }
         .frame(height: compact ? 82 : 92)
         .padding(.horizontal, compact ? 8 : 12)
-        .background(darkCardBackground, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+        .teenGlassCard()
     }
 
     /*
@@ -598,8 +657,8 @@ private struct TeenDriveDashboardView<Settings: View>: View {
                     .frame(height: compact ? 48 : 54)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .background(locationPermissionColor, in: Capsule())
+                .foregroundStyle(locationPermissionColor)
+                .glassActionButton(accent: locationPermissionColor)
             }
 
             Button(action: onToggleDrive) {
@@ -609,9 +668,11 @@ private struct TeenDriveDashboardView<Settings: View>: View {
                     .frame(height: compact ? 50 : 56)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .background(Color.green, in: Capsule())
+            .foregroundStyle(tracker.isTracking ? .orange : .green)
+            .glassActionButton(accent: tracker.isTracking ? .orange : .green)
         }
+        .padding(.top, compact ? 4 : 6)
+        .padding(.bottom, compact ? 6 : 8)
     }
 
     /*
@@ -630,13 +691,6 @@ private struct TeenDriveDashboardView<Settings: View>: View {
         }
     }
 
-    private var darkCardBackground: LinearGradient {
-        LinearGradient(
-            colors: [Color.white.opacity(0.12), Color.white.opacity(0.07)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
 }
 
 private enum TeenDriveMapStyle {
@@ -964,9 +1018,9 @@ private struct TeenHomeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.horizontal, compact ? 14 : 18)
             .padding(.top, compact ? 22 : 34)
-            .padding(.bottom, 4)
+            .padding(.bottom, compact ? 16 : 20)
         }
-        .background(Color.black)
+        .background(GlassAppBackground())
         .toolbar(.hidden, for: .navigationBar)
         .task {
             await accountStore.syncAccount()
@@ -999,8 +1053,6 @@ private struct TeenHomeView: View {
                 Text("\(greetingName)!")
                     .fontWeight(.semibold)
                     .foregroundStyle(.green)
-                Text("Hi")
-                    .foregroundStyle(.white.opacity(0.58))
             }
         } actions: {
             EmptyView()
@@ -1022,10 +1074,10 @@ private struct TeenHomeView: View {
                     Text(scoreHeadline)
                         .font((compact ? Font.title3 : .title).bold())
                         .foregroundStyle(.green)
-                    Text("You're driving safely and building great habits.")
+                    Text("You're building safe driving habits.")
                         .font(compact ? .caption : .subheadline)
                         .foregroundStyle(.white.opacity(0.62))
-                        .lineLimit(compact ? 1 : 2)
+                        .lineLimit(2)
                 }
 
                 HStack(spacing: 8) {
@@ -1051,11 +1103,7 @@ private struct TeenHomeView: View {
         }
         .frame(minHeight: compact ? 124 : 148)
         .padding(compact ? 12 : 16)
-        .background(homeCardBackground, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.12), lineWidth: 1)
-        )
+        .teenGlassCard()
     }
 
     private var scoreRing: some View {
@@ -1110,8 +1158,7 @@ private struct TeenHomeView: View {
             }
             .frame(maxWidth: .infinity, minHeight: compact ? 118 : 140, alignment: .topLeading)
             .padding(compact ? 10 : 12)
-            .background(homeCardBackground, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+            .teenGlassCard()
 
             VStack(alignment: .leading, spacing: compact ? 8 : 12) {
                 Text("Parent Connection")
@@ -1147,13 +1194,12 @@ private struct TeenHomeView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.white)
-                    .background(Color.green, in: RoundedRectangle(cornerRadius: 8))
+                    .background(Color.green.gradient, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
             .frame(maxWidth: .infinity, minHeight: compact ? 118 : 140, alignment: .topLeading)
             .padding(compact ? 10 : 12)
-            .background(homeCardBackground, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+            .teenGlassCard()
         }
     }
 
@@ -1192,26 +1238,17 @@ private struct TeenHomeView: View {
                     .font(.title3.bold())
                     .foregroundStyle(.green)
                     .frame(width: compact ? 38 : 46, height: compact ? 38 : 46)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    .teenGlassControl()
             }
             .buttonStyle(.plain)
         }
         .frame(minHeight: compact ? 76 : 92)
         .padding(compact ? 10 : 14)
-        .background(homeCardBackground, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+        .teenGlassCard()
     }
 
     private var scoreHeadline: String {
         safeScore >= 85 ? "Great job!" : safeScore >= 70 ? "Good progress" : "Needs focus"
-    }
-
-    private var homeCardBackground: LinearGradient {
-        LinearGradient(
-            colors: [Color.white.opacity(0.12), Color.white.opacity(0.07)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
     }
 
     /*
@@ -1243,8 +1280,7 @@ private struct TeenHomeView: View {
         }
         .frame(maxWidth: .infinity, minHeight: compact ? 68 : 82, alignment: .leading)
         .padding(compact ? 9 : 12)
-        .background(homeCardBackground, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
+        .teenGlassCard()
     }
 
     /*
@@ -1340,5 +1376,114 @@ private struct ScoreBreakdownSheet: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
+    }
+}
+
+/*
+ Purpose:
+ Draws the shared dark glass backdrop used behind the Music-style translucent surfaces.
+*/
+struct GlassAppBackground: View {
+    var body: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.03, green: 0.04, blue: 0.05),
+                Color(red: 0.07, green: 0.09, blue: 0.11),
+                Color(red: 0.01, green: 0.02, blue: 0.02)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay {
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.11),
+                    Color.green.opacity(0.08),
+                    Color.clear
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .ignoresSafeArea()
+    }
+}
+
+extension View {
+    /*
+     Purpose:
+     Applies the app's translucent glass card treatment used across dashboard panels and lists.
+    */
+    func teenGlassCard(cornerRadius: CGFloat = 8) -> some View {
+        self
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.14), Color.white.opacity(0.04)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .shadow(color: .black.opacity(0.24), radius: 18, y: 9)
+    }
+
+    /*
+     Purpose:
+     Applies a smaller glass treatment for icon buttons, rows, and secondary controls.
+    */
+    func teenGlassControl(cornerRadius: CGFloat = 8) -> some View {
+        self
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+    }
+
+    /*
+     Purpose:
+     Styles primary action buttons as translucent glass while preserving a clear accent color.
+    */
+    func glassActionButton(accent: Color) -> some View {
+        self
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay {
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                accent.opacity(0.2),
+                                Color.white.opacity(0.08),
+                                accent.opacity(0.1)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .allowsHitTesting(false)
+            }
+            .overlay {
+                Capsule()
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.32), accent.opacity(0.42)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+                    .allowsHitTesting(false)
+            }
+            .shadow(color: accent.opacity(0.18), radius: 16, y: 7)
     }
 }
