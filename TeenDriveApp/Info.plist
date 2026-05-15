@@ -28,6 +28,8 @@
 	<string>Teen Drive uses your location to calculate speed, save trip history, and record route maps.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Teen Drive uses the camera so a parent can scan a teen pairing QR code.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Teen Drive uses Motion &amp; Fitness activity to confirm when a drive starts or stops and reduce false trip detection.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>

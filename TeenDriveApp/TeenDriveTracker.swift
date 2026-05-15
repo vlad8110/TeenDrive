@@ -11,13 +11,25 @@
 */
 import ActivityKit
 import CoreLocation
+import CoreMotion
 import FirebaseFirestore
 import Foundation
+
+private enum AutoDriveDetectionState {
+    case idle
+    case possibleDrive
+    case driving
+    case possibleStop
+    case stopped
+}
 
 @MainActor
 final class TeenDriveTracker: NSObject, ObservableObject {
     // Detection thresholds are intentionally conservative to reduce false positives from GPS noise.
     private let autoStartThresholdMetersPerSecond = 5 / 2.2369362921
+    private let autoStopSpeedThresholdMetersPerSecond = 3 / 2.2369362921
+    private let autoStartConfirmationInterval: TimeInterval = 15
+    private let gpsOnlyAutoStartConfirmationInterval: TimeInterval = 20
     private let autoStopIdleInterval: TimeInterval = 5 * 60
     private let rapidAccelerationThreshold: Double = 3.0
     private let harshStopThreshold: Double = -3.8
@@ -49,7 +61,12 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     private let safetySettings: SafetyAlertSettings
     private let accountStore: AccountStore
     private let roadSpeedLimitProvider = RoadSpeedLimitProvider()
+    private let motionActivityManager = CMMotionActivityManager()
     private var roadSpeedLimitLookupTask: Task<Void, Never>?
+    private var currentMotionActivity: CMMotionActivity?
+    private var autoDetectionState: AutoDriveDetectionState = .idle
+    private var autoStartCandidateStartedAt: Date?
+    private var autoStopCandidateStartedAt: Date?
     private var previousLocation: CLLocation?
     private var previousSpeedSample: (speed: Double, timestamp: Date)?
     private var startedAt = Date()
@@ -63,6 +80,8 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     private var didRecordNightDriving = false
     private var lastPhoneUseAlertAt: Date?
     private var visitedPlaceIDs: Set<UUID> = []
+    private var lastVisitArrivalAt: Date?
+    private var lastRouteGrowthAt = Date()
     private var lastActiveDriveSyncAt: Date?
     private var liveActivity: Activity<TeenDriveActivityAttributes>?
 
@@ -109,6 +128,34 @@ final class TeenDriveTracker: NSObject, ObservableObject {
 
     var roadSpeedLimitsEnabled: Bool {
         safetySettings.roadSpeedLimitsEnabled
+    }
+
+    private var isAutomotiveMotion: Bool {
+        guard let activity = currentMotionActivity else { return false }
+        return activity.automotive &&
+            !activity.walking &&
+            !activity.running &&
+            !activity.cycling &&
+            activity.confidence != .low
+    }
+
+    private var isStoppedMotion: Bool {
+        guard let activity = currentMotionActivity else { return false }
+        return activity.stationary || activity.walking || activity.running
+    }
+
+    /*
+     Purpose:
+     Starts Motion & Fitness activity updates so auto-start and auto-stop can combine GPS speed with
+     Apple's automotive/stationary classification.
+    */
+    private func startMotionActivityUpdates() {
+        guard CMMotionActivityManager.isActivityAvailable() else { return }
+        motionActivityManager.startActivityUpdates(to: .main) { [weak self] activity in
+            Task { @MainActor in
+                self?.currentMotionActivity = activity
+            }
+        }
     }
 
     /*
@@ -214,12 +261,18 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         didRecordNightDriving = false
         lastPhoneUseAlertAt = nil
         visitedPlaceIDs = []
+        autoDetectionState = .driving
+        autoStartCandidateStartedAt = nil
+        autoStopCandidateStartedAt = nil
+        lastVisitArrivalAt = nil
+        lastRouteGrowthAt = Date()
         startedAt = Date()
         activeTripStartedAt = startedAt
         lastMovementAt = startedAt
         isTracking = true
         isAutoStartArmed = false
         statusMessage = automatic ? "Drive auto-started" : "Drive tracking"
+        startMotionActivityUpdates()
         locationManager.allowsBackgroundLocationUpdates = authorizationStatus == .authorizedAlways
         locationManager.startUpdatingLocation()
         if safetySettings.tripStartedAlertsEnabled {
@@ -250,6 +303,9 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
         isTracking = false
         activeTripStartedAt = nil
+        autoDetectionState = .stopped
+        autoStartCandidateStartedAt = nil
+        autoStopCandidateStartedAt = nil
         statusMessage = reason
         saveSession()
         clearActiveDrive()
@@ -270,14 +326,14 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         updateRoadSpeedLimitIfNeeded(for: location)
 
         guard isTracking else {
-            if measuredSpeed >= autoStartThresholdMetersPerSecond {
+            if shouldAutoStart(from: location, speedMetersPerSecond: measuredSpeed) {
                 start(automatic: true, initialLocation: location)
             }
             return
         }
 
         topSpeedMetersPerSecond = max(topSpeedMetersPerSecond, measuredSpeed)
-        updateIdleState(speedMetersPerSecond: measuredSpeed)
+        updateIdleState(for: location, speedMetersPerSecond: measuredSpeed)
         updateSpeedAlertState(for: location, speedMetersPerSecond: measuredSpeed)
         updateDrivingEventState(for: location, speedMetersPerSecond: measuredSpeed)
         updateCorneringEventState(for: location, speedMetersPerSecond: measuredSpeed)
@@ -292,6 +348,9 @@ final class TeenDriveTracker: NSObject, ObservableObject {
             let segment = location.distance(from: previousLocation)
             if segment.isFinite, segment > 0 {
                 distanceMeters += segment
+                if segment >= 10 {
+                    lastRouteGrowthAt = location.timestamp
+                }
             }
         }
 
@@ -535,17 +594,83 @@ final class TeenDriveTracker: NSObject, ObservableObject {
 
     /*
      Purpose:
-     Stops the trip automatically after the vehicle has been idle long enough.
+     Starts a drive only after GPS and motion agree long enough to avoid one-sample false starts.
     */
-    private func updateIdleState(speedMetersPerSecond: Double) {
-        if speedMetersPerSecond >= autoStartThresholdMetersPerSecond {
-            lastMovementAt = Date()
+    private func shouldAutoStart(from location: CLLocation, speedMetersPerSecond: Double) -> Bool {
+        guard CLLocationCoordinate2DIsValid(location.coordinate), location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 100 else {
+            resetAutoStartCandidate()
+            return false
+        }
+
+        let motionAvailable = CMMotionActivityManager.isActivityAvailable()
+        let motionKnown = currentMotionActivity != nil
+        let motionAllowsStart = isAutomotiveMotion || !motionAvailable || !motionKnown
+        guard speedMetersPerSecond >= autoStartThresholdMetersPerSecond, motionAllowsStart else {
+            resetAutoStartCandidate()
+            return false
+        }
+
+        let now = location.timestamp
+        if autoStartCandidateStartedAt == nil {
+            autoStartCandidateStartedAt = now
+            autoDetectionState = .possibleDrive
+            statusMessage = isAutomotiveMotion ? "Possible drive detected" : "Checking movement"
+            return false
+        }
+
+        let requiredInterval = isAutomotiveMotion ? autoStartConfirmationInterval : gpsOnlyAutoStartConfirmationInterval
+        guard now.timeIntervalSince(autoStartCandidateStartedAt ?? now) >= requiredInterval else {
+            return false
+        }
+
+        resetAutoStartCandidate()
+        return true
+    }
+
+    /*
+     Purpose:
+     Stops the trip automatically after speed, motion, and route changes show the drive has really ended.
+    */
+    private func updateIdleState(for location: CLLocation, speedMetersPerSecond: Double) {
+        if speedMetersPerSecond >= autoStartThresholdMetersPerSecond || isAutomotiveMotion {
+            lastMovementAt = location.timestamp
+            autoStopCandidateStartedAt = nil
+            if isTracking {
+                autoDetectionState = .driving
+            }
             return
         }
 
-        let idleTime = Date().timeIntervalSince(lastMovementAt)
+        let now = location.timestamp
+        let stoppedBySpeed = speedMetersPerSecond <= autoStopSpeedThresholdMetersPerSecond
+        let stoppedByMotion = isStoppedMotion
+        let stoppedByVisit = lastVisitArrivalAt.map { now.timeIntervalSince($0) <= autoStopIdleInterval } ?? false
+        let routeHasGoneQuiet = now.timeIntervalSince(lastRouteGrowthAt) >= autoStopIdleInterval
+        guard stoppedBySpeed, stoppedByMotion || stoppedByVisit || routeHasGoneQuiet else {
+            autoStopCandidateStartedAt = nil
+            return
+        }
+
+        if autoStopCandidateStartedAt == nil {
+            autoStopCandidateStartedAt = max(lastMovementAt, now)
+            autoDetectionState = .possibleStop
+            statusMessage = "Checking if drive ended"
+        }
+
+        let idleTime = now.timeIntervalSince(autoStopCandidateStartedAt ?? now)
         if idleTime >= autoStopIdleInterval {
-            stop(reason: "Auto-stopped after 5 minutes idle")
+            stop(reason: stoppedByVisit ? "Auto-stopped after arrival" : "Auto-stopped after 5 minutes idle")
+        }
+    }
+
+    /*
+     Purpose:
+     Clears pending auto-start evidence when speed or motion no longer looks like a drive.
+    */
+    private func resetAutoStartCandidate() {
+        autoStartCandidateStartedAt = nil
+        if !isTracking {
+            autoDetectionState = .idle
         }
     }
 
@@ -561,7 +686,10 @@ final class TeenDriveTracker: NSObject, ObservableObject {
 
         isAutoStartArmed = true
         statusMessage = message ?? "Auto-start armed at 5 mph"
+        startMotionActivityUpdates()
         locationManager.allowsBackgroundLocationUpdates = authorizationStatus == .authorizedAlways
+        locationManager.startMonitoringSignificantLocationChanges()
+        locationManager.startMonitoringVisits()
         if authorizationStatus == .authorizedAlways {
             locationManager.startUpdatingLocation()
         }
@@ -929,6 +1057,22 @@ extension TeenDriveTracker: CLLocationManagerDelegate {
         guard let location = locations.last else { return }
         Task { @MainActor in
             handle(location: location)
+        }
+    }
+
+    /*
+     Purpose:
+     Uses iOS visit-arrival events as an extra hint that a drive has ended at a real destination.
+    */
+    nonisolated func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
+        Task { @MainActor in
+            guard visit.arrivalDate != .distantPast else { return }
+            lastVisitArrivalAt = visit.arrivalDate
+            if isTracking {
+                autoStopCandidateStartedAt = autoStopCandidateStartedAt ?? visit.arrivalDate
+                autoDetectionState = .possibleStop
+                statusMessage = "Arrival detected"
+            }
         }
     }
 
