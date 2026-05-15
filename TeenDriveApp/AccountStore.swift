@@ -9,6 +9,7 @@
  Developer Notes:
  This file is part of the TeenDrive app. The comments below explain the important entry points so a new programmer can trace the flow without reading the whole project first.
 */
+import FirebaseAuth
 import FirebaseFirestore
 import Foundation
 
@@ -303,8 +304,8 @@ final class AccountStore: ObservableObject {
             teenProfileID: pairing.teenProfileID,
             familyGroupID: pairing.familyGroupID
         )
+        guard await connectParentInFirestore(pairing: pairing, parentName: parentName) else { return false }
         upsert(connectedTeen: connectedTeen)
-        await connectParentInFirestore(pairing: pairing, parentName: parentName)
         return true
     }
 
@@ -330,6 +331,162 @@ final class AccountStore: ObservableObject {
         teenProfileListener?.remove()
         teenProfileListener = nil
         cloudSyncState = lastSuccessfulCloudSyncAt == nil ? .idle : .upToDate
+    }
+
+    /*
+     Purpose:
+     Deletes the current user's cloud account records, removes cloud links to family members, signs out the
+     Firebase user, and resets local account settings so the app returns to role selection.
+
+     Teen accounts delete their own trip history, active-drive status, notification events, pairing tokens,
+     teen profile, and family teen document. Parent accounts remove their parent ID from connected teen
+     records and delete the parent profile without deleting a teen's driving history.
+    */
+    func deleteAccountAndCloudData() async {
+        cloudSyncState = .syncing
+        teenProfileListener?.remove()
+        teenProfileListener = nil
+
+        if let db = FirebaseBackend.shared.database,
+           let userID = await FirebaseBackend.shared.signInIfNeeded() {
+            if role == .teen {
+                await deleteTeenCloudData(db: db, teenID: teenProfileID.isEmpty ? userID : teenProfileID)
+            } else {
+                await deleteParentCloudData(db: db, parentID: parentProfileID.isEmpty ? userID : parentProfileID)
+            }
+            firebaseStatus = "Account data deleted"
+        }
+
+        await deleteCurrentFirebaseUser()
+        resetLocalAccountState()
+    }
+
+    /*
+     Purpose:
+     Removes cloud data that belongs to a teen account while keeping parent accounts from deleting teen data.
+    */
+    private func deleteTeenCloudData(db: Firestore, teenID: String) async {
+        guard !teenID.isEmpty else { return }
+        let groupID = familyGroupID
+
+        if !groupID.isEmpty {
+            let teenRef = db.collection("familyGroups").document(groupID).collection("teens").document(teenID)
+            await deleteDocuments(in: teenRef.collection("trips"))
+            await deleteDocuments(in: teenRef.collection("activeDrive"))
+            await deleteDocuments(
+                in: db.collection("familyGroups")
+                    .document(groupID)
+                    .collection("pairingTokens")
+                    .whereField("createdByTeenID", isEqualTo: teenID)
+            )
+            try? await teenRef.delete()
+            try? await db.collection("familyGroups").document(groupID).setData([
+                "teenIDs": FieldValue.arrayRemove([teenID]),
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
+        }
+
+        await deleteNotificationEvents(db: db, teenID: teenID)
+        try? await db.collection("teenProfiles").document(teenID).delete()
+    }
+
+    /*
+     Purpose:
+     Removes the current parent from cloud relationship records without erasing a teen's trip history.
+    */
+    private func deleteParentCloudData(db: Firestore, parentID: String) async {
+        guard !parentID.isEmpty else { return }
+
+        for teen in connectedTeens {
+            guard !teen.familyGroupID.isEmpty, !teen.teenProfileID.isEmpty else { continue }
+            let familyRef = db.collection("familyGroups").document(teen.familyGroupID)
+            try? await db.collection("teenProfiles").document(teen.teenProfileID).setData([
+                "connectedParentIDs": FieldValue.arrayRemove([parentID]),
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
+            try? await familyRef.collection("teens").document(teen.teenProfileID).setData([
+                "connectedParentIDs": FieldValue.arrayRemove([parentID]),
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
+            try? await familyRef.setData([
+                "parentIDs": FieldValue.arrayRemove([parentID]),
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true)
+        }
+
+        try? await db.collection("parentProfiles").document(parentID).delete()
+    }
+
+    /*
+     Purpose:
+     Deletes write-only notification event records that belong to the teen account being removed.
+    */
+    private func deleteNotificationEvents(db: Firestore, teenID: String) async {
+        do {
+            let snapshot = try await db.collection("notificationEvents")
+                .whereField("teenID", isEqualTo: teenID)
+                .getDocuments()
+            for document in snapshot.documents {
+                try? await document.reference.delete()
+            }
+        } catch {
+            firebaseStatus = "Could not delete notification events"
+        }
+    }
+
+    /*
+     Purpose:
+     Deletes every document in a small Firestore subcollection used by the app's account cleanup path.
+    */
+    private func deleteDocuments(in query: Query) async {
+        do {
+            let snapshot = try await query.getDocuments()
+            for document in snapshot.documents {
+                try? await document.reference.delete()
+            }
+        } catch {
+            firebaseStatus = "Could not delete cloud records"
+        }
+    }
+
+    /*
+     Purpose:
+     Removes the current Firebase Auth user when possible so account deletion also clears authentication state.
+    */
+    private func deleteCurrentFirebaseUser() async {
+        guard FirebaseBackend.shared.isConfigured,
+              let user = Auth.auth().currentUser else { return }
+        do {
+            try await user.delete()
+        } catch {
+            try? Auth.auth().signOut()
+        }
+    }
+
+    /*
+     Purpose:
+     Clears local account defaults and restores the app to its first-run state after data deletion.
+    */
+    private func resetLocalAccountState() {
+        for key in Keys.all {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+
+        hasSelectedRole = false
+        role = .teen
+        displayName = ""
+        pairingCode = AccountStore.makePairingCode()
+        pairingToken = AccountStore.makePairingToken()
+        connectedParentName = ""
+        connectedParentID = ""
+        connectedParents = []
+        connectedTeenCode = ""
+        connectedTeens = []
+        familyGroupID = ""
+        teenProfileID = ""
+        parentProfileID = ""
+        lastSuccessfulCloudSyncAt = nil
+        cloudSyncState = .idle
     }
 
     /*
@@ -373,12 +530,16 @@ final class AccountStore: ObservableObject {
      Purpose:
      Creates or updates the teen profile and family group documents in Firestore.
     */
-    private func syncTeenProfile(userID: String) async {
+    private func syncTeenProfile(userID: String, allowPermissionRetry: Bool = true) async {
         guard let db = FirebaseBackend.shared.database else {
             cloudSyncState = .blocked(FirebaseBackend.shared.statusMessage)
             return
         }
-        let profileID = teenProfileID.isEmpty ? userID : teenProfileID
+        if (!teenProfileID.isEmpty && teenProfileID != userID) || (teenProfileID.isEmpty && !familyGroupID.isEmpty) {
+            resetTeenCloudLinkForNewFirebaseUser()
+        }
+
+        let profileID = userID
         let groupID = familyGroupID.isEmpty ? db.collection("familyGroups").document().documentID : familyGroupID
         let name = normalizedDisplayName(fallback: "Teen")
         let token = FirebaseBackend.shared.fcmToken
@@ -407,6 +568,12 @@ final class AccountStore: ObservableObject {
             firebaseStatus = "Teen profile synced"
             markCloudSyncSucceeded()
         } catch {
+            if allowPermissionRetry, isMissingPermissionError(error) {
+                resetTeenCloudLinkForNewFirebaseUser()
+                firebaseStatus = "Refreshing teen cloud profile..."
+                await syncTeenProfile(userID: userID, allowPermissionRetry: false)
+                return
+            }
             firebaseStatus = "Could not sync teen profile: \((error as NSError).localizedDescription)"
             cloudSyncState = .failed(firebaseStatus)
         }
@@ -421,20 +588,44 @@ final class AccountStore: ObservableObject {
             cloudSyncState = .blocked(FirebaseBackend.shared.statusMessage)
             return
         }
-        let profileID = parentProfileID.isEmpty ? userID : parentProfileID
-        let name = normalizedDisplayName(fallback: "Parent")
-        let familyIDs = Array(Set(connectedTeens.map(\.familyGroupID).filter { !$0.isEmpty }))
-        let teenIDs = Array(Set(connectedTeens.map(\.teenProfileID).filter { !$0.isEmpty }))
-        let profile = ParentProfile(
-            id: profileID,
-            displayName: name,
-            familyGroupIDs: familyIDs,
-            connectedTeenIDs: teenIDs,
-            fcmToken: FirebaseBackend.shared.fcmToken,
-            updatedAt: Date()
-        )
+        if !parentProfileID.isEmpty, parentProfileID != userID {
+            resetParentCloudLinkForNewFirebaseUser()
+        }
 
         do {
+            let profileID = userID
+            let name = normalizedDisplayName(fallback: "Parent")
+            let parentRef = db.collection("parentProfiles").document(profileID)
+            let savedProfile = try? await parentRef.getDocument()
+            let savedFamilyIDs = stringList(from: savedProfile?.data()?["familyGroupIDs"])
+            let savedTeenIDs = stringList(from: savedProfile?.data()?["connectedTeenIDs"])
+            let localFamilyIDs = connectedTeens.map(\.familyGroupID).filter { !$0.isEmpty }
+            let localTeenIDs = connectedTeens.map(\.teenProfileID).filter { !$0.isEmpty }
+            let familyIDs = Array(Set(savedFamilyIDs + localFamilyIDs))
+            let teenIDs = Array(Set(savedTeenIDs + localTeenIDs))
+            let refreshedTeens = await resolveParentConnectedTeens(
+                db: db,
+                parentID: profileID,
+                familyIDs: familyIDs,
+                teenIDs: teenIDs
+            )
+
+            if !refreshedTeens.isEmpty {
+                connectedTeens = refreshedTeens
+                connectedTeenCode = refreshedTeens.first?.pairingCode ?? connectedTeenCode
+            }
+
+            let resolvedFamilyIDs = connectedTeens.map(\.familyGroupID).filter { !$0.isEmpty }
+            let resolvedTeenIDs = connectedTeens.map(\.teenProfileID).filter { !$0.isEmpty }
+            let profile = ParentProfile(
+                id: profileID,
+                displayName: name,
+                familyGroupIDs: Array(Set(resolvedFamilyIDs.isEmpty ? familyIDs : resolvedFamilyIDs)),
+                connectedTeenIDs: Array(Set(resolvedTeenIDs.isEmpty ? teenIDs : resolvedTeenIDs)),
+                fcmToken: FirebaseBackend.shared.fcmToken,
+                updatedAt: Date()
+            )
+
             try await db.collection("parentProfiles").document(profileID).setData(profile.firestoreData, merge: true)
             parentProfileID = profileID
             firebaseStatus = "Parent profile synced"
@@ -452,17 +643,20 @@ final class AccountStore: ObservableObject {
     private func connectParentInFirestore(
         pairing: PairingPayload,
         parentName: String
-    ) async {
+    ) async -> Bool {
         guard let db = FirebaseBackend.shared.database,
               let userID = await FirebaseBackend.shared.signInIfNeeded(),
               !pairing.teenProfileID.isEmpty,
               !pairing.familyGroupID.isEmpty else {
             firebaseStatus = FirebaseBackend.shared.statusMessage
             cloudSyncState = .blocked(FirebaseBackend.shared.statusMessage)
-            return
+            return false
         }
 
-        parentProfileID = parentProfileID.isEmpty ? userID : parentProfileID
+        if !parentProfileID.isEmpty, parentProfileID != userID {
+            resetParentCloudLinkForNewFirebaseUser()
+        }
+        parentProfileID = userID
         let familyRef = db.collection("familyGroups").document(pairing.familyGroupID)
         let parentRef = db.collection("parentProfiles").document(parentProfileID)
         let teenRef = db.collection("teenProfiles").document(pairing.teenProfileID)
@@ -495,10 +689,222 @@ final class AccountStore: ObservableObject {
 
             firebaseStatus = "Teen connected"
             markCloudSyncSucceeded()
+            return true
         } catch {
             firebaseStatus = "Could not connect teen: \((error as NSError).localizedDescription)"
             cloudSyncState = .failed(firebaseStatus)
+            return false
         }
+    }
+
+    /*
+     Purpose:
+     Finds the family group that currently links this teen to at least one parent.
+
+     This mirrors the Android sync behavior: trips and live-drive data should be written to the family
+     document the parent is actually allowed to read. If the locally stored family ID is stale, this
+     method searches the teen profile, parent profiles, and family group records for the newest
+     parent-linked family and updates local state before returning it.
+    */
+    func resolveParentLinkedFamilyGroupID(db: Firestore) async -> String {
+        guard role == .teen, !teenProfileID.isEmpty else { return familyGroupID }
+
+        if await familyHasLinkedParent(db: db, familyGroupID: familyGroupID, teenID: teenProfileID) {
+            return familyGroupID
+        }
+
+        var candidateFamilyIDs: Set<String> = []
+        do {
+            let teenDocument = try await db.collection("teenProfiles").document(teenProfileID).getDocument()
+            let parentIDs = stringList(from: teenDocument.data()?["connectedParentIDs"])
+            for parentID in parentIDs {
+                let parentDocument = try await db.collection("parentProfiles").document(parentID).getDocument()
+                candidateFamilyIDs.formUnion(stringList(from: parentDocument.data()?["familyGroupIDs"]))
+            }
+        } catch {
+            FirebaseBackend.shared.statusMessage = "Could not check parent-linked family"
+        }
+
+        if let resolved = await newestParentLinkedFamilyID(db: db, familyIDs: Array(candidateFamilyIDs), teenID: teenProfileID) {
+            familyGroupID = resolved
+            return resolved
+        }
+
+        do {
+            let snapshot = try await db.collection("familyGroups")
+                .whereField("teenIDs", arrayContains: teenProfileID)
+                .getDocuments()
+            let familyIDs = snapshot.documents.map(\.documentID)
+            if let resolved = await newestParentLinkedFamilyID(db: db, familyIDs: familyIDs, teenID: teenProfileID) {
+                familyGroupID = resolved
+                return resolved
+            }
+        } catch {
+            FirebaseBackend.shared.statusMessage = "Could not find parent-linked family"
+        }
+
+        return familyGroupID
+    }
+
+    /*
+     Purpose:
+     Returns true when a family group contains this teen and at least one parent.
+    */
+    private func familyHasLinkedParent(db: Firestore, familyGroupID: String, teenID: String) async -> Bool {
+        guard !familyGroupID.isEmpty else { return false }
+        do {
+            let document = try await db.collection("familyGroups").document(familyGroupID).getDocument()
+            guard let data = document.data() else { return false }
+            return stringList(from: data["teenIDs"]).contains(teenID) && !stringList(from: data["parentIDs"]).isEmpty
+        } catch {
+            return false
+        }
+    }
+
+    /*
+     Purpose:
+     Chooses the newest candidate family group that includes the teen and has a parent linked.
+    */
+    private func newestParentLinkedFamilyID(db: Firestore, familyIDs: [String], teenID: String) async -> String? {
+        var candidates: [(id: String, updatedAt: Date)] = []
+        for familyID in Set(familyIDs).filter({ !$0.isEmpty }) {
+            do {
+                let document = try await db.collection("familyGroups").document(familyID).getDocument()
+                guard let data = document.data(),
+                      stringList(from: data["teenIDs"]).contains(teenID),
+                      !stringList(from: data["parentIDs"]).isEmpty else {
+                    continue
+                }
+                let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
+                candidates.append((familyID, updatedAt))
+            } catch {
+                continue
+            }
+        }
+        return candidates.max { $0.updatedAt < $1.updatedAt }?.id
+    }
+
+    /*
+     Purpose:
+     Rebuilds the parent account's connected teen list from Firestore instead of trusting stale local storage.
+
+     Parent reports are stored under family group paths. If the parent device keeps an old family ID from an
+     earlier QR attempt, the reports screen listens to an empty location. This method reads the parent profile,
+     verifies each teen still belongs to a family group that contains this parent, and updates local state to
+     the newest valid family group before report listeners are attached.
+    */
+    private func resolveParentConnectedTeens(
+        db: Firestore,
+        parentID: String,
+        familyIDs: [String],
+        teenIDs: [String]
+    ) async -> [ConnectedTeen] {
+        var resolvedTeens: [ConnectedTeen] = []
+        let localByTeenID = Dictionary(uniqueKeysWithValues: connectedTeens.compactMap { teen in
+            teen.teenProfileID.isEmpty ? nil : (teen.teenProfileID, teen)
+        })
+
+        for teenID in Set(teenIDs).filter({ !$0.isEmpty }) {
+            let candidateFamilyIDs = await parentFamilyIDs(
+                db: db,
+                parentID: parentID,
+                teenID: teenID,
+                knownFamilyIDs: familyIDs
+            )
+            guard let familyID = await newestParentLinkedFamilyID(
+                db: db,
+                familyIDs: candidateFamilyIDs,
+                teenID: teenID,
+                parentID: parentID
+            ) else {
+                continue
+            }
+
+            let teenName = await teenDisplayName(db: db, teenID: teenID)
+            let localTeen = localByTeenID[teenID]
+            resolvedTeens.append(
+                ConnectedTeen(
+                    id: localTeen?.id ?? UUID(),
+                    name: teenName.isEmpty ? localTeen?.name ?? "Teen" : teenName,
+                    pairingCode: localTeen?.pairingCode ?? "",
+                    teenProfileID: teenID,
+                    familyGroupID: familyID
+                )
+            )
+        }
+
+        return resolvedTeens.sorted { $0.name < $1.name }
+    }
+
+    /*
+     Purpose:
+     Finds family group IDs where the teen and parent are both present.
+    */
+    private func parentFamilyIDs(db: Firestore, parentID: String, teenID: String, knownFamilyIDs: [String]) async -> [String] {
+        var familyIDs = Set(knownFamilyIDs)
+        do {
+            let snapshot = try await db.collection("familyGroups")
+                .whereField("teenIDs", arrayContains: teenID)
+                .getDocuments()
+            for document in snapshot.documents {
+                let parentIDs = stringList(from: document.data()["parentIDs"])
+                if parentIDs.contains(parentID) {
+                    familyIDs.insert(document.documentID)
+                }
+            }
+        } catch {
+            FirebaseBackend.shared.statusMessage = "Could not refresh parent links"
+        }
+        return Array(familyIDs)
+    }
+
+    /*
+     Purpose:
+     Chooses the newest family group that contains the requested teen and parent.
+    */
+    private func newestParentLinkedFamilyID(
+        db: Firestore,
+        familyIDs: [String],
+        teenID: String,
+        parentID: String
+    ) async -> String? {
+        var candidates: [(id: String, updatedAt: Date)] = []
+        for familyID in Set(familyIDs).filter({ !$0.isEmpty }) {
+            do {
+                let document = try await db.collection("familyGroups").document(familyID).getDocument()
+                guard let data = document.data(),
+                      stringList(from: data["teenIDs"]).contains(teenID),
+                      stringList(from: data["parentIDs"]).contains(parentID) else {
+                    continue
+                }
+                let updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue() ?? .distantPast
+                candidates.append((familyID, updatedAt))
+            } catch {
+                continue
+            }
+        }
+        return candidates.max { $0.updatedAt < $1.updatedAt }?.id
+    }
+
+    /*
+     Purpose:
+     Reads the teen's display name so the parent dashboard can label reports after cloud refresh.
+    */
+    private func teenDisplayName(db: Firestore, teenID: String) async -> String {
+        do {
+            let document = try await db.collection("teenProfiles").document(teenID).getDocument()
+            return (document.data()?["displayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        } catch {
+            return ""
+        }
+    }
+
+    /*
+     Purpose:
+     Safely reads Firestore string arrays whose runtime type arrives as Any.
+    */
+    private func stringList(from value: Any?) -> [String] {
+        (value as? [Any] ?? []).compactMap { $0 as? String }.filter { !$0.isEmpty }
     }
 
     /*
@@ -535,7 +941,10 @@ final class AccountStore: ObservableObject {
             return false
         }
 
-        parentProfileID = parentProfileID.isEmpty ? userID : parentProfileID
+        if !parentProfileID.isEmpty, parentProfileID != userID {
+            resetParentCloudLinkForNewFirebaseUser()
+        }
+        parentProfileID = userID
         let tokenRef = db.collection("familyGroups")
             .document(pairing.familyGroupID)
             .collection("pairingTokens")
@@ -596,6 +1005,41 @@ final class AccountStore: ObservableObject {
     private func normalizedDisplayName(fallback: String) -> String {
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? fallback : name
+    }
+
+    /*
+     Purpose:
+     Detects Firestore permission failures so sync can recover from stale local cloud IDs once.
+    */
+    private func isMissingPermissionError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == FirestoreErrorDomain && nsError.code == FirestoreErrorCode.permissionDenied.rawValue
+    }
+
+    /*
+     Purpose:
+     Clears stale teen cloud IDs when Firebase Auth creates a new anonymous user.
+
+     Firestore rules require the teen profile document ID to match the signed-in user ID. If an old local
+     teenProfileID survives after the auth user changes, profile sync is denied. Resetting the cloud link
+     lets the app create a fresh family group and teen profile under the current Firebase user.
+    */
+    private func resetTeenCloudLinkForNewFirebaseUser() {
+        familyGroupID = ""
+        teenProfileID = ""
+        connectedParentName = ""
+        connectedParentID = ""
+        connectedParents = []
+        pairingCode = AccountStore.makePairingCode()
+        pairingToken = AccountStore.makePairingToken()
+    }
+
+    /*
+     Purpose:
+     Clears stale parent cloud IDs when Firebase Auth creates a new anonymous user.
+    */
+    private func resetParentCloudLinkForNewFirebaseUser() {
+        parentProfileID = ""
     }
 
     /*
@@ -727,4 +1171,21 @@ private enum Keys {
     static let teenProfileID = "account.teenProfileID"
     static let parentProfileID = "account.parentProfileID"
     static let lastSuccessfulCloudSyncAt = "account.lastSuccessfulCloudSyncAt"
+
+    static let all = [
+        hasSelectedRole,
+        role,
+        displayName,
+        pairingCode,
+        pairingToken,
+        connectedParentName,
+        connectedParentID,
+        connectedParents,
+        connectedTeenCode,
+        connectedTeens,
+        familyGroupID,
+        teenProfileID,
+        parentProfileID,
+        lastSuccessfulCloudSyncAt
+    ]
 }

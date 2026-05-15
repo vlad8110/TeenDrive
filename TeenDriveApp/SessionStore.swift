@@ -107,6 +107,28 @@ final class SessionStore: ObservableObject {
 
     /*
      Purpose:
+     Erases every locally stored trip, remote listener snapshot, and active-drive snapshot from this device.
+
+     This is used by the account/data deletion flow after the account store has requested cloud cleanup.
+     It does not delete teen records from Firestore by itself; cloud deletion needs the current account
+     identity and is handled by AccountStore before the app resets the signed-in user.
+    */
+    func deleteAllLocalData() {
+        removeListeners()
+        localSessions = []
+        remoteSessionsBySource = [:]
+        remoteTeenInfoBySource = [:]
+        activeDrivesBySource = [:]
+        sessions = []
+        parentTripSummaries = []
+        activeTeenDrives = []
+        deletedSessionIDs = []
+        saveDeletedSessionIDs()
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    /*
+     Purpose:
      Sets Firestore listeners for parent trip summaries and active teen drives.
     */
     func bindRemoteTrips() {
@@ -216,7 +238,7 @@ final class SessionStore: ObservableObject {
      Purpose:
      Attempts to upload all locally saved teen trips to Firestore.
     */
-    private func syncLocalTrips() async {
+    func syncLocalTrips() async {
         for session in localSessions {
             await syncTrip(session)
         }
@@ -235,8 +257,10 @@ final class SessionStore: ObservableObject {
               !accountStore.teenProfileID.isEmpty else { return }
 
         do {
+            let familyGroupID = await accountStore.resolveParentLinkedFamilyGroupID(db: db)
+            guard !familyGroupID.isEmpty else { return }
             try await db.collection("familyGroups")
-                .document(accountStore.familyGroupID)
+                .document(familyGroupID)
                 .collection("teens")
                 .document(accountStore.teenProfileID)
                 .collection("trips")
@@ -244,12 +268,12 @@ final class SessionStore: ObservableObject {
                 .setData(
                     session.firestoreData(
                         teenID: accountStore.teenProfileID,
-                        familyGroupID: accountStore.familyGroupID
+                        familyGroupID: familyGroupID
                     ),
                     merge: true
                 )
         } catch {
-            FirebaseBackend.shared.statusMessage = "Could not sync trip"
+            FirebaseBackend.shared.statusMessage = "Could not sync trip: \((error as NSError).localizedDescription)"
         }
     }
 

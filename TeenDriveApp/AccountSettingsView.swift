@@ -14,9 +14,14 @@ import SwiftUI
 // Lets users edit their profile identity and manage parent/teen pairing.
 struct AccountSettingsView: View {
     @ObservedObject var accountStore: AccountStore
+    var sessionStore: SessionStore?
     var usesTeenHeader = false
     @State private var parentName = ""
     @State private var isShowingScanner = false
+    @State private var isShowingPrivacySafety = false
+    @State private var isShowingDeleteConfirmation = false
+    @State private var isDeletingAccountData = false
+    @State private var deletionMessage: String?
     @State private var scanErrorMessage: String?
 
     private var displayName: String {
@@ -62,6 +67,25 @@ struct AccountSettingsView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $isShowingPrivacySafety) {
+            NavigationStack {
+                PrivacySafetyView()
+            }
+        }
+        .confirmationDialog(
+            "Delete account and data?",
+            isPresented: $isShowingDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Account & Data", role: .destructive) {
+                Task {
+                    await deleteAccountAndData()
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This removes local trips, pairing links, and account records for this device. Teen accounts also request deletion of their synced trips.")
         }
     }
 
@@ -117,6 +141,8 @@ struct AccountSettingsView: View {
                 if accountStore.isPaired || accountStore.role == .parent {
                     disconnectCard
                 }
+
+                legalAndDataCard
             }
             .padding(12)
             .padding(.bottom, 24)
@@ -320,6 +346,46 @@ struct AccountSettingsView: View {
         .teenGlassCard()
     }
 
+    private var legalAndDataCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Privacy & Safety", systemImage: "lock.shield")
+                .font(.subheadline.weight(.semibold))
+
+            Button {
+                isShowingPrivacySafety = true
+            } label: {
+                Label("Privacy Policy & Safety Disclaimer", systemImage: "doc.text.magnifyingglass")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+
+            Button(role: .destructive) {
+                isShowingDeleteConfirmation = true
+            } label: {
+                if isDeletingAccountData {
+                    HStack {
+                        ProgressView()
+                        Text("Deleting Account Data")
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    Label("Delete Account & Data", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(isDeletingAccountData)
+
+            if let deletionMessage {
+                Text(deletionMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .teenGlassCard()
+    }
+
     private var pairingBadge: some View {
         Text(accountStore.hasConnectedParent ? "Paired" : "Open")
             .font(.caption.weight(.bold))
@@ -353,6 +419,23 @@ struct AccountSettingsView: View {
         case .blocked, .failed:
             return "exclamationmark.icloud"
         }
+    }
+
+    /*
+     Purpose:
+     Runs the full user-requested deletion flow from the settings screen.
+
+     Local trip history is erased first so reports disappear immediately, then AccountStore attempts cloud
+     cleanup and resets account state back to the first-run role picker.
+    */
+    private func deleteAccountAndData() async {
+        guard !isDeletingAccountData else { return }
+        isDeletingAccountData = true
+        deletionMessage = "Deleting local and cloud data..."
+        sessionStore?.deleteAllLocalData()
+        await accountStore.deleteAccountAndCloudData()
+        deletionMessage = "Account data deleted on this device."
+        isDeletingAccountData = false
     }
 
     /*

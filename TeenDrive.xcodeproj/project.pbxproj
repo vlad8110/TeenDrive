@@ -38,6 +38,8 @@
 		A1000000000000000000001D /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* GoogleService-Info.plist */; };
 		A1000000000000000000001E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* Assets.xcassets */; };
 		A1000000000000000000001F /* RoadSpeedLimitProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* RoadSpeedLimitProvider.swift */; };
+		A10000000000000000000020 /* PrivacySafetyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* PrivacySafetyView.swift */; };
+		A10000000000000000000021 /* DrivingLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* DrivingLogicTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,6 +49,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = A70000000000000000000002;
 			remoteInfo = TeenDriveLiveActivity;
+		};
+		A30000000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A90000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A70000000000000000000001;
+			remoteInfo = TeenDrive;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -95,6 +104,9 @@
 		A20000000000000000000023 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		A20000000000000000000024 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000025 /* RoadSpeedLimitProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoadSpeedLimitProvider.swift; sourceTree = "<group>"; };
+		A20000000000000000000026 /* PrivacySafetyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySafetyView.swift; sourceTree = "<group>"; };
+		A20000000000000000000027 /* DrivingLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrivingLogicTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000028 /* TeenDriveTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TeenDriveTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -116,6 +128,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A50000000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -124,6 +143,7 @@
 			children = (
 				A60000000000000000000002 /* TeenDriveApp */,
 				A60000000000000000000003 /* TeenDriveLiveActivity */,
+				A60000000000000000000005 /* TeenDriveTests */,
 				A60000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -139,6 +159,7 @@
 				A2000000000000000000001B /* QRCodeScannerView.swift */,
 				A20000000000000000000014 /* ParentDashboardView.swift */,
 				A20000000000000000000013 /* SessionHistoryView.swift */,
+				A20000000000000000000026 /* PrivacySafetyView.swift */,
 				A20000000000000000000017 /* SafetyAlertStrip.swift */,
 				A20000000000000000000016 /* SafetyAlertSettingsView.swift */,
 				A20000000000000000000003 /* TeenDriveTracker.swift */,
@@ -175,8 +196,17 @@
 			children = (
 				A20000000000000000000010 /* TeenDrive.app */,
 				A20000000000000000000009 /* TeenDriveLiveActivity.appex */,
+				A20000000000000000000028 /* TeenDriveTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A60000000000000000000005 /* TeenDriveTests */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000027 /* DrivingLogicTests.swift */,
+			);
+			path = TeenDriveTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -224,6 +254,24 @@
 			productReference = A20000000000000000000009 /* TeenDriveLiveActivity.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		A70000000000000000000003 /* TeenDriveTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000004 /* Build configuration list for PBXNativeTarget "TeenDriveTests" */;
+			buildPhases = (
+				A50000000000000000000003 /* Frameworks */,
+				A81000000000000000000003 /* Sources */,
+				A82000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A31000000000000000000002 /* PBXTargetDependency */,
+			);
+			name = TeenDriveTests;
+			productName = TeenDriveTests;
+			productReference = A20000000000000000000028 /* TeenDriveTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -239,6 +287,10 @@
 					};
 					A70000000000000000000002 = {
 						CreatedOnToolsVersion = 15.2;
+					};
+					A70000000000000000000003 = {
+						CreatedOnToolsVersion = 15.2;
+						TestTargetID = A70000000000000000000001;
 					};
 				};
 			};
@@ -260,6 +312,7 @@
 			targets = (
 				A70000000000000000000001 /* TeenDrive */,
 				A70000000000000000000002 /* TeenDriveLiveActivity */,
+				A70000000000000000000003 /* TeenDriveTests */,
 			);
 		};
 /* End PBXProject section */
@@ -281,6 +334,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A82000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -296,6 +356,7 @@
 				A10000000000000000000013 /* QRCodeScannerView.swift in Sources */,
 				A1000000000000000000000C /* ParentDashboardView.swift in Sources */,
 				A1000000000000000000000B /* SessionHistoryView.swift in Sources */,
+				A10000000000000000000020 /* PrivacySafetyView.swift in Sources */,
 				A1000000000000000000000F /* SafetyAlertStrip.swift in Sources */,
 				A1000000000000000000000E /* SafetyAlertSettingsView.swift in Sources */,
 				A10000000000000000000003 /* TeenDriveTracker.swift in Sources */,
@@ -322,6 +383,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A81000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000021 /* DrivingLogicTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -329,6 +398,11 @@
 			isa = PBXTargetDependency;
 			target = A70000000000000000000002 /* TeenDriveLiveActivity */;
 			targetProxy = A30000000000000000000001 /* PBXContainerItemProxy */;
+		};
+		A31000000000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A70000000000000000000001 /* TeenDrive */;
+			targetProxy = A30000000000000000000002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -458,6 +532,7 @@
 		A83000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = TeenDriveApp/TeenDrive.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -481,6 +556,7 @@
 		A83000000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = production;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = TeenDriveApp/TeenDrive.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -545,6 +621,46 @@
 			};
 			name = Release;
 		};
+		A83000000000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vlad8110.teendrive.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TeenDrive.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TeenDrive";
+			};
+			name = Debug;
+		};
+		A83000000000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vlad8110.teendrive.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TeenDrive.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TeenDrive";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -571,6 +687,15 @@
 			buildConfigurations = (
 				A83000000000000000000005 /* Debug */,
 				A83000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80000000000000000000004 /* Build configuration list for PBXNativeTarget "TeenDriveTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A83000000000000000000007 /* Debug */,
+				A83000000000000000000008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

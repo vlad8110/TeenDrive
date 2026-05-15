@@ -48,6 +48,13 @@ struct ContentView: View {
                         .onChange(of: accountStore.connectedTeens) {
                             sessionStore.bindRemoteTrips()
                         }
+                        .onChange(of: accountStore.cloudSyncState) {
+                            if accountStore.cloudSyncState == .upToDate {
+                                Task {
+                                    await sessionStore.syncLocalTrips()
+                                }
+                            }
+                        }
                 } else {
                     parentTabs
                         .task {
@@ -101,7 +108,7 @@ struct ContentView: View {
                     }
                 case .profile:
                     NavigationStack {
-                        AccountSettingsView(accountStore: accountStore, usesTeenHeader: true)
+                        AccountSettingsView(accountStore: accountStore, sessionStore: sessionStore, usesTeenHeader: true)
                     }
                 }
             }
@@ -133,7 +140,7 @@ struct ContentView: View {
             }
 
             NavigationStack {
-                AccountSettingsView(accountStore: accountStore)
+                AccountSettingsView(accountStore: accountStore, sessionStore: sessionStore)
             }
             .tabItem {
                 Label("Account", systemImage: "person.crop.circle")

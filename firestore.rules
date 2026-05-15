@@ -49,8 +49,13 @@ service cloud.firestore {
 
       match /pairingTokens/{tokenID} {
         allow read: if signedIn() &&
-          resource.data.expiresAt > request.time &&
-          (!("usedByParentID" in resource.data) || resource.data.usedByParentID == null || resource.data.usedByParentID == request.auth.uid);
+          (
+            resource.data.createdByTeenID == request.auth.uid ||
+            (
+              resource.data.expiresAt > request.time &&
+              (!("usedByParentID" in resource.data) || resource.data.usedByParentID == null || resource.data.usedByParentID == request.auth.uid)
+            )
+          );
         allow create: if signedIn() &&
           request.resource.data.createdByTeenID == request.auth.uid &&
           request.resource.data.teenID == request.auth.uid &&
@@ -62,7 +67,7 @@ service cloud.firestore {
           (!("usedByParentID" in resource.data) || resource.data.usedByParentID == null || resource.data.usedByParentID == request.auth.uid) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(["usedByParentID", "usedAt"]) &&
           request.resource.data.usedByParentID == request.auth.uid;
-        allow delete: if false;
+        allow delete: if signedIn() && resource.data.createdByTeenID == request.auth.uid;
       }
 
       match /teens/{teenID} {
@@ -75,7 +80,7 @@ service cloud.firestore {
           isFamilyParent(familyGroupID) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(["connectedParentIDs", "updatedAt"])
         );
-        allow delete: if false;
+        allow delete: if ownsTeen(teenID);
 
         match /trips/{tripID} {
           allow read: if ownsTeen(teenID) || isFamilyParent(familyGroupID);
@@ -90,7 +95,7 @@ service cloud.firestore {
           allow create, update: if ownsTeen(teenID) &&
             request.resource.data.teenID == teenID &&
             request.resource.data.familyGroupID == familyGroupID;
-          allow delete: if false;
+          allow delete: if ownsTeen(teenID);
         }
       }
     }
@@ -103,14 +108,18 @@ service cloud.firestore {
         request.resource.data.familyGroupID is string;
       allow update: if ownsTeen(teenID) ||
         isFamilyParent(resource.data.familyGroupID);
-      allow delete: if false;
+      allow delete: if ownsTeen(teenID);
     }
 
     match /parentProfiles/{parentID} {
       allow read: if ownsParent(parentID) ||
         request.auth.uid in resource.data.connectedTeenIDs;
       allow create, update: if ownsParent(parentID);
-      allow delete: if false;
+      allow delete: if ownsParent(parentID);
+    }
+
+    match /androidClients/{userID} {
+      allow read, write: if signedIn() && request.auth.uid == userID;
     }
 
     match /notificationEvents/{eventID} {
@@ -118,7 +127,8 @@ service cloud.firestore {
         request.resource.data.teenID == request.auth.uid &&
         request.resource.data.familyGroupID is string &&
         request.auth.uid in get(familyPath(request.resource.data.familyGroupID)).data.teenIDs;
-      allow read, update, delete: if false;
+      allow read, delete: if signedIn() && resource.data.teenID == request.auth.uid;
+      allow update: if false;
     }
   }
 }

@@ -608,7 +608,11 @@ final class TeenDriveTracker: NSObject, ObservableObject {
      Builds a completed TeenTrip from current drive state and stores it in the session store.
     */
     private func saveSession() {
-        guard !route.isEmpty || distanceMeters > 0 else { return }
+        let reportRoute = route.isEmpty ? fallbackReportRoute() : route
+        guard !reportRoute.isEmpty || distanceMeters > 0 || !safetyAlerts.isEmpty else {
+            statusMessage = "Drive stopped before any report data was captured"
+            return
+        }
 
         let session = TeenTrip(
             id: UUID(),
@@ -618,10 +622,34 @@ final class TeenDriveTracker: NSObject, ObservableObject {
             topSpeedMetersPerSecond: topSpeedMetersPerSecond,
             speedAlerts: speedAlerts,
             safetyAlerts: safetyAlerts,
-            route: route
+            route: reportRoute
         )
 
         sessionStore.add(session)
+        statusMessage = "Drive report saved"
+    }
+
+    /*
+     Purpose:
+     Creates a minimal route for very short drives when GPS produced a current location but no accepted route point yet.
+
+     This keeps manual start/stop and short neighborhood tests from disappearing from Reports. Longer drives still use
+     their full sampled route.
+    */
+    private func fallbackReportRoute() -> [RoutePoint] {
+        guard let lastKnownLocation else { return [] }
+        return [
+            RoutePoint(
+                latitude: lastKnownLocation.latitude,
+                longitude: lastKnownLocation.longitude,
+                timestamp: startedAt
+            ),
+            RoutePoint(
+                latitude: lastKnownLocation.latitude,
+                longitude: lastKnownLocation.longitude,
+                timestamp: Date()
+            )
+        ]
     }
 
     /*
@@ -683,7 +711,6 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         var data: [String: Any] = [
             "isActive": true,
             "teenID": accountStore.teenProfileID,
-            "familyGroupID": accountStore.familyGroupID,
             "teenName": displayName.isEmpty ? "Teen" : displayName,
             "startedAt": Timestamp(date: startedAt),
             "updatedAt": Timestamp(date: now),
@@ -700,8 +727,11 @@ final class TeenDriveTracker: NSObject, ObservableObject {
 
         Task {
             do {
+                let familyGroupID = await accountStore.resolveParentLinkedFamilyGroupID(db: db)
+                guard !familyGroupID.isEmpty else { return }
+                data["familyGroupID"] = familyGroupID
                 try await db.collection("familyGroups")
-                    .document(accountStore.familyGroupID)
+                    .document(familyGroupID)
                     .collection("teens")
                     .document(accountStore.teenProfileID)
                     .collection("activeDrive")
@@ -725,18 +755,20 @@ final class TeenDriveTracker: NSObject, ObservableObject {
             return
         }
 
-        let data: [String: Any] = [
+        var data: [String: Any] = [
             "isActive": false,
             "teenID": accountStore.teenProfileID,
-            "familyGroupID": accountStore.familyGroupID,
             "updatedAt": Timestamp(date: Date()),
             "endedAt": Timestamp(date: Date())
         ]
 
         Task {
             do {
+                let familyGroupID = await accountStore.resolveParentLinkedFamilyGroupID(db: db)
+                guard !familyGroupID.isEmpty else { return }
+                data["familyGroupID"] = familyGroupID
                 try await db.collection("familyGroups")
-                    .document(accountStore.familyGroupID)
+                    .document(familyGroupID)
                     .collection("teens")
                     .document(accountStore.teenProfileID)
                     .collection("activeDrive")

@@ -67,15 +67,26 @@ extension SpeedAlert {
 
 extension SafetyAlert {
     var firestoreData: [String: Any] {
-        [
+        var data: [String: Any] = [
             "id": id.uuidString,
             "kind": kind.rawValue,
-            "timestamp": Timestamp(date: timestamp),
-            "speedMetersPerSecond": speedMetersPerSecond as Any,
-            "latitude": latitude as Any,
-            "longitude": longitude as Any,
-            "note": note as Any
+            "timestamp": Timestamp(date: timestamp)
         ]
+
+        if let speedMetersPerSecond {
+            data["speedMetersPerSecond"] = speedMetersPerSecond
+        }
+        if let latitude {
+            data["latitude"] = latitude
+        }
+        if let longitude {
+            data["longitude"] = longitude
+        }
+        if let note {
+            data["note"] = note
+        }
+
+        return data
     }
 
     /*

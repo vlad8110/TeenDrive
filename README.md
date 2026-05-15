@@ -14,6 +14,7 @@ Teen Drive is an iOS SwiftUI teen driving tracker for families. It records trips
 - Saved trip history with route maps, alert summaries, and behavior score breakdown.
 - Parent dashboard with active teen drives, live route maps, alert pins, trip history, and safety metrics.
 - Lock Screen Live Activity during active tracking. Dynamic Island content is intentionally blank.
+- In-app privacy policy, safety disclaimer, and account/data deletion from Profile.
 
 ## Safety Alerts
 
@@ -55,6 +56,16 @@ iOS does not expose exact phone activity such as every unlock, tap, or app switc
 - Protected data became available, which is a practical signal that the phone was unlocked.
 
 Phone-use alerts only record while driving, after the trip has been active for at least 30 seconds, at 10 mph or faster, and with a cooldown to avoid repeated alerts.
+
+## Privacy, Safety, And Data Deletion
+
+Privacy and safety information is available inside the app from Profile > Privacy & Safety.
+
+- `PRIVACY_POLICY.md` describes what the app collects, why it collects it, where it stores data, and how deletion works.
+- `SAFETY_DISCLAIMER.md` explains that Teen Drive is a coaching tool, not an emergency service, crash detector, legal driving record, or replacement for safe supervision.
+- Profile > Delete Account & Data clears local trip history and account settings from the device.
+- Teen deletion requests also remove synced teen trips, active-drive status, notification events, pairing tokens, teen profile records, and family teen records.
+- Parent deletion requests remove parent profile records and parent links without deleting the teen's driving history.
 
 ## Background Tracking
 
@@ -139,6 +150,7 @@ The simulator can run the app, but speed and route testing require simulated loc
 
 - `TeenDriveApp/` - main SwiftUI iOS app.
 - `TeenDriveLiveActivity/` - WidgetKit Live Activity extension.
+- `TeenDriveTests/` - unit tests for trip scoring, alert counting, and map-region logic.
 - `functions/` - optional Firebase Cloud Function for parent push notifications.
 - `firestore.rules` - Firestore security rules.
 - `firestore.indexes.json` - Firestore index configuration.
@@ -148,8 +160,18 @@ The simulator can run the app, but speed and route testing require simulated loc
 ## Important iOS Files
 
 - `TeenDriveApp/Info.plist` declares location, camera, background mode, and Live Activity support.
-- `TeenDriveApp/TeenDrive.entitlements` enables APNs development push notification support.
+- `TeenDriveApp/TeenDrive.entitlements` enables APNs push notification support. Debug builds use development APNs and Release builds use production APNs through the `APS_ENVIRONMENT` build setting.
 - `TeenDriveApp/GoogleService-Info.plist` connects the app to Firebase.
+
+## App Store Release Prep
+
+App Store submission materials live in `docs/app-store/`.
+
+- `APP_STORE_METADATA.md` - draft app name, subtitle, description, keywords, category, and review notes.
+- `PRIVACY_NUTRITION_LABELS.md` - App Store Connect privacy label draft for the current codebase.
+- `SCREENSHOT_PLAN.md` - required screenshot sizes and capture storyboard.
+- `PRODUCTION_FIREBASE_APNS.md` - production Firebase, APNs, and real-device smoke test checklist.
+- `APP_STORE_RELEASE_CHECKLIST.md` - final submission checklist.
 
 ## Build Checks
 
@@ -157,5 +179,6 @@ Recommended checks before committing:
 
 ```bash
 xcodebuild -project TeenDrive.xcodeproj -scheme TeenDrive -configuration Debug -destination 'generic/platform=iOS Simulator' build
+xcodebuild -project TeenDrive.xcodeproj -scheme TeenDrive -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16 Pro' test
 cd functions && npm run build && npm run lint
 ```
