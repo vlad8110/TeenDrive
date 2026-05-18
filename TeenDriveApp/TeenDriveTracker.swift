@@ -96,7 +96,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         authorizationStatus = locationManager.authorizationStatus
         super.init()
         locationManager.delegate = self
-        locationManager.activityType = .fitness
+        locationManager.activityType = .automotiveNavigation
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         locationManager.distanceFilter = 1
         locationManager.pausesLocationUpdatesAutomatically = false
@@ -132,11 +132,11 @@ final class TeenDriveTracker: NSObject, ObservableObject {
 
     private var isAutomotiveMotion: Bool {
         guard let activity = currentMotionActivity else { return false }
-        return activity.automotive &&
-            !activity.walking &&
-            !activity.running &&
-            !activity.cycling &&
-            activity.confidence != .low
+        return activity.automotive
+            && !activity.walking
+            && !activity.running
+            && !activity.cycling
+            && activity.confidence != .low
     }
 
     private var isStoppedMotion: Bool {
@@ -603,8 +603,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
         }
 
         let motionAvailable = CMMotionActivityManager.isActivityAvailable()
-        let motionKnown = currentMotionActivity != nil
-        let motionAllowsStart = isAutomotiveMotion || !motionAvailable || !motionKnown
+        let motionAllowsStart = isAutomotiveMotion || !motionAvailable || currentMotionActivity == nil
         guard speedMetersPerSecond >= autoStartThresholdMetersPerSecond, motionAllowsStart else {
             resetAutoStartCandidate()
             return false
@@ -931,7 +930,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
             return
         }
 
-        let existingActivities = Activity<TeenDriveActivityAttributes>.activities
+        let existingActivities: [Activity<TeenDriveActivityAttributes>] = Activity.activities
         if let existingActivity = existingActivities.first {
             liveActivity = existingActivity
             updateLiveActivity()
@@ -977,7 +976,7 @@ final class TeenDriveTracker: NSObject, ObservableObject {
     */
     private func endLiveActivity() {
         guard let liveActivity else {
-            let activities = Activity<TeenDriveActivityAttributes>.activities
+            let activities: [Activity<TeenDriveActivityAttributes>] = Activity.activities
             guard !activities.isEmpty else { return }
 
             let content = ActivityContent(state: activityState(), staleDate: nil)
@@ -994,7 +993,8 @@ final class TeenDriveTracker: NSObject, ObservableObject {
 
         Task {
             await liveActivity.end(content, dismissalPolicy: .default)
-            for activity in Activity<TeenDriveActivityAttributes>.activities where activity.id != liveActivity.id {
+            let activities: [Activity<TeenDriveActivityAttributes>] = Activity.activities
+            for activity in activities where activity.id != liveActivity.id {
                 await activity.end(content, dismissalPolicy: .default)
             }
         }

@@ -132,6 +132,7 @@ private struct SessionRow: View {
 struct SessionDetailView: View {
     let session: TeenTrip
     @State private var position: MapCameraPosition
+    @State private var roadMatchedCoordinates: [CLLocationCoordinate2D] = []
 
     /*
      Purpose:
@@ -155,8 +156,9 @@ struct SessionDetailView: View {
                         .tint(.red)
                 }
 
-                if session.coordinates.count > 1 {
-                    MapPolyline(coordinates: session.coordinates)
+                let displayCoordinates = roadMatchedCoordinates.isEmpty ? session.coordinates : roadMatchedCoordinates
+                if displayCoordinates.count > 1 {
+                    MapPolyline(coordinates: displayCoordinates)
                         .stroke(.green, lineWidth: 5)
                 }
 
@@ -220,6 +222,9 @@ struct SessionDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .background(GlassAppBackground())
         .environment(\.colorScheme, .dark)
+        .task(id: session.id) {
+            roadMatchedCoordinates = await RoadMatchedRouteBuilder.coordinates(for: session.route)
+        }
     }
 }
 
@@ -239,5 +244,84 @@ private struct DetailMetric: View {
                 .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private enum RoadMatchedRouteBuilder {
+    /*
+     Purpose:
+     Builds a road-following display polyline for completed reports.
+
+     The trip still stores the actual GPS samples. This display helper asks Apple Maps for automobile
+     directions between representative route points so sparse background samples do not appear as long
+     straight lines across neighborhoods. If directions fail or the network is unavailable, callers fall
+     back to the raw GPS polyline.
+    */
+    static func coordinates(for route: [RoutePoint]) async -> [CLLocationCoordinate2D] {
+        let anchors = sampledAnchors(from: route)
+        guard anchors.count > 1 else { return [] }
+
+        var matchedCoordinates: [CLLocationCoordinate2D] = []
+        for index in anchors.indices.dropLast() {
+            guard let legCoordinates = await directionsCoordinates(from: anchors[index], to: anchors[index + 1]),
+                  legCoordinates.count > 1 else {
+                continue
+            }
+
+            if matchedCoordinates.isEmpty {
+                matchedCoordinates.append(contentsOf: legCoordinates)
+            } else {
+                matchedCoordinates.append(contentsOf: legCoordinates.dropFirst())
+            }
+        }
+
+        return matchedCoordinates.count > 1 ? matchedCoordinates : []
+    }
+
+    /*
+     Purpose:
+     Chooses enough route points to preserve the trip shape without making too many directions requests.
+    */
+    private static func sampledAnchors(from route: [RoutePoint]) -> [CLLocationCoordinate2D] {
+        let coordinates = route.map(\.coordinate)
+        guard coordinates.count > 12 else { return coordinates }
+
+        let step = max(1, coordinates.count / 10)
+        var anchors = stride(from: 0, to: coordinates.count, by: step).map { coordinates[$0] }
+        if let lastAnchor = anchors.last,
+           let lastCoordinate = coordinates.last,
+           lastAnchor.latitude != lastCoordinate.latitude || lastAnchor.longitude != lastCoordinate.longitude {
+            anchors.append(lastCoordinate)
+        }
+        return anchors
+    }
+
+    /*
+     Purpose:
+     Requests one automobile route leg from Apple Maps.
+    */
+    private static func directionsCoordinates(
+        from start: CLLocationCoordinate2D,
+        to end: CLLocationCoordinate2D
+    ) async -> [CLLocationCoordinate2D]? {
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: start))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: end))
+        request.transportType = .automobile
+
+        do {
+            let response = try await MKDirections(request: request).calculate()
+            return response.routes.first?.polyline.coordinates
+        } catch {
+            return nil
+        }
+    }
+}
+
+private extension MKPolyline {
+    var coordinates: [CLLocationCoordinate2D] {
+        var coordinates = Array(repeating: CLLocationCoordinate2D(), count: pointCount)
+        getCoordinates(&coordinates, range: NSRange(location: 0, length: pointCount))
+        return coordinates
     }
 }
